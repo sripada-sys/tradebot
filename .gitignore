@@ -34,3 +34,7 @@ logs/
 # Fyers token cache
 fyers_token.json
 access_token.txt
+
+# Never commit QR codes
+qr.png
+*.qr.png
