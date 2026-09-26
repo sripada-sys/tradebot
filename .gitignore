@@ -1,0 +1,36 @@
+# Secrets — NEVER commit
+.env
+.env.live
+.env.local
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+npm-debug.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# n8n exports (contain credentials sometimes)
+workflows/*.private.json
+
+# Logs
+*.log
+logs/
+
+# Fyers token cache
+fyers_token.json
+access_token.txt
