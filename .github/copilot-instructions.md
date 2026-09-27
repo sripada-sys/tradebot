@@ -6,11 +6,12 @@
 
 Every action, every tool call, every model choice must respect this ceiling.
 
-### Rule A: Total Budget = $5
-- **Already spent**: ~$17 in previous sessions (learning tax, don't repeat)
-- **Going forward**: $5 hard cap for all remaining phases (1.5 → 4)
-- **If approaching $4 spent**: Stop, checkpoint, ask user before continuing
-- **If any single task looks like it will cost >$1**: Stop and explain trade-off first
+### Rule A: Total Budget = $0 (HARD STOP)
+- **Already spent**: ~$37 total (Opus/Sonnet overuse — learning tax, don't repeat)
+- **Going forward**: **$0 budget for Phase 2 onwards**
+- **No more Opus or Sonnet** — terminal + grep + Haiku only
+- **If a task cannot be done without LLM reasoning**: Stop, pause, ask user explicitly before proceeding
+- **If user approves an exception**: Get written confirmation + budget allocation first
 
 ### Rule B: Don't Burn Tokens
 - **This is a simple trading bot.** Do not treat it like a research project.
@@ -22,28 +23,23 @@ Every action, every tool call, every model choice must respect this ceiling.
 - **Prefer terminal one-liners** over creating new files
 - **Delete/consolidate** existing bloated docs instead of adding more
 
-### Rule C: Model Selection (Claude Family — Agent's Judgment)
+### Rule C: Model Selection (HAIKU ONLY for Phase 2+)
 
-I have **full authority** to pick the right Claude model per task. Guidelines:
+**No exceptions.** Phase 2 onwards = **Haiku only**. Period.
 
 | Task Type | Model | Why |
 |-----------|-------|-----|
-| Simple edits (regex tweak, SQL fix, config change) | **Haiku** | ~1/12th cost of Opus; plenty smart for this |
-| Bash commands, file reads, standard debugging | **Haiku / Sonnet** | Don't need Opus for `git commit` |
-| Writing straightforward code (Python function, SQL schema) | **Sonnet** | Good balance; use unless code is tricky |
-| Architecture decisions, tricky debugging, algorithm design | **Sonnet / Opus** | Pay for reasoning only when needed |
-| Anything that could go wrong catastrophically (live trading logic) | **Opus** | Worth the cost for safety-critical paths |
+| All edits, queries, deployments, debugging | **Haiku** | $0.003 per 1K tokens vs Sonnet $0.003/$0.015 — 80% savings |
+| Terminal commands, grep, script testing | **No LLM** | Just run it |
+| Architecture/logic that needs reasoning | **PAUSE** | Stop, ask user, get budget approval first |
 
-**Default**: Assume Sonnet is enough. Escalate to Opus only when clearly justified.
-**Downgrade to Haiku** for mechanical/repetitive work.
+**This is non-negotiable.** Opus is banned. Sonnet is banned. Terminal work costs $0.
 
-### Rule D: Budget-Aware Task Execution
-Before starting any task, agent should mentally estimate:
-- Number of turns required
-- Tool calls per turn
-- Whether Sonnet suffices (default yes)
-
-If the estimate exceeds a few cents, **state the plan first** and get user confirmation.
+### Rule D: Budget-Aware Task Execution ($0 Phase 2+)
+- **All work is terminal/grep/file-edit based** — no exploratory reads, no LLM calls
+- **If a task genuinely requires reasoning**: STOP. Don't guess. Pause and ask.
+- **When in doubt**: Use `grep -r`, `ssh`, `docker exec` — these are free
+- **Example**: "Need to add advisor approval logic?" → Write it on the VPS in a terminal scratch file first, test it, then commit. No LLM reasoning needed.
 
 ### Rule E: What Counts as Wasteful (Don't Do This)
 - ❌ Creating 8 documentation files when 1 would do
@@ -54,10 +50,11 @@ If the estimate exceeds a few cents, **state the plan first** and get user confi
 - ❌ Committing every micro-change separately (batch them)
 - ❌ Using Opus for tasks Haiku can handle
 
-### Rule F: Budget Tracking
-- Agent will **not** print running cost estimates (user monitors their own dashboard)
-- If user says "how much have you spent?" — answer: "I don't have exact numbers; check your usage dashboard"
-- If user says "you're burning budget" — immediately stop, ask what to prioritize
+### Rule F: Budget Tracking & Enforcement
+- **$0 budget is hard stop** — no exceptions without explicit written user approval + new budget allocation
+- **If I slip and use Sonnet/Opus**: User is entitled to refuse paying for it, full stop
+- **Cost breakdown per session**: All Phase 2+ work should cost <$0.50 total (mostly Haiku for final review, if any)
+- **Transparent**: If a task genuinely cannot be done within $0 budget, I stop and explain why upfront
 
 ---
 
