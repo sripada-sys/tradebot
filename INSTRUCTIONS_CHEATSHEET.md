@@ -1,8 +1,20 @@
 # 🎯 Standard Instructions Cheat Sheet
 
+## 🚨 The 3 Rules (READ FIRST)
+
+| Rule | What | Why |
+|------|------|-----|
+| **Keep It Simple** | No defensive code, no over-engineering, no premature optimization | Bot receives 3 known groups → no edge cases to handle |
+| **Don't Add Code Unless Needed** | No one-time scripts, no "future" utilities, no 1-caller functions | Use SQL instead, keep it minimal |
+| **Simple Workflow, Not Complex** | No async/concurrent, no ML, no state machines, no optimization algorithms | It's just: message → parse → insert → done |
+
+**When adding code, ask**: Is this really needed? Can I do it simpler? Will this be reused? If "no" → delete it.
+
+---
+
 ## File Location
 ```
-.github/copilot-instructions.md  ← Agent loads this automatically
+.github/copilot-instructions.md  ← Agent loads this automatically + learns these 3 rules
 ```
 
 ## What This Means For You

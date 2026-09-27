@@ -18,6 +18,152 @@ See `docs/architecture.md` for full system diagram and component specs.
 
 ---
 
+## 🎯 Design Principles (MUST READ)
+
+**These 3 rules supersede everything else. When in doubt, choose simpler.**
+
+### Rule 1: Keep It Simple
+- **No defensive code** (error handling for edge cases that won't happen)
+- **No over-engineering** (building for hypothetical future scenarios)
+- **No premature optimization** (speed matters only if it's actually slow)
+- **No abstractions unless absolutely needed**
+
+**Example - WRONG** ❌:
+```python
+# Over-engineered
+def extract_signal(message: str) -> Optional[Dict[str, Any]]:
+    """Extract signal with comprehensive error handling."""
+    if not message:
+        raise ValueError("Message cannot be None")
+    if not isinstance(message, str):
+        raise TypeError("Message must be string")
+    try:
+        # Try multiple regex patterns
+        for pattern in [pattern1, pattern2, pattern3, pattern4]:
+            match = pattern.search(message)
+            if match:
+                # Validate each field
+                result = validate_fields(match.groups())
+                if result:
+                    return result
+    except Exception as e:
+        log_error(e)
+        return None
+    return None
+```
+
+**Example - RIGHT** ✅:
+```python
+def extract_signal(message: str) -> Optional[Dict[str, Any]]:
+    """Extract signal from message."""
+    match = pattern.search(message)
+    return match.groupdict() if match else None
+```
+
+**Why**: Your bot receives messages from 3 known WhatsApp groups with consistent format. You don't need to handle random edge cases that will never happen.
+
+---
+
+### Rule 2: Don't Add Code Unless Needed
+- **One-time usage code**: Eliminate it or move it to a SQL query
+- **"Might be useful later"**: Don't add it now
+- **Utility functions for 1 caller**: Inline it
+- **Config constants for 1 value**: Hardcode it (for MVP)
+
+**Example - WRONG** ❌:
+```python
+# One-time script that formats symbols
+def format_symbol(symbol: str) -> str:
+    return symbol.upper().strip()
+
+# Called once during seed
+formatted = format_symbol(raw_symbol)
+```
+
+**Example - RIGHT** ✅:
+```sql
+-- Do it directly in SQL (one command, no code)
+INSERT INTO symbols (stock_name_raw, nse_symbol)
+SELECT DISTINCT raw_symbol, UPPER(TRIM(raw_symbol)) FROM temp_symbols;
+```
+
+**For temporary/one-use code**:
+- Use SQL directly
+- Use shell one-liners
+- Use Python REPL
+- Then delete it
+
+**Example - Python one-liner instead of script**:
+```bash
+# Instead of creating scripts/clean_data.py that's used once:
+python -c "import json; print(json.dumps(data, indent=2))" < input.json
+```
+
+---
+
+### Rule 3: This Is a Simple Workflow, Not Complex Algorithm
+- **No machine learning** (regex + simple LLM is enough)
+- **No optimization algorithms** (linear search is fine for 3 groups)
+- **No state machines** (if/else logic is clearer)
+- **No async/concurrent code** unless messaging queue builds up (it won't, yet)
+
+**The workflow is**:
+```
+WhatsApp message → Parse signal (regex) → Insert to DB → Done
+```
+
+**That's it.** Nothing more complex than this.
+
+**Example - WRONG** ❌:
+```python
+# Async/concurrent (unnecessary complexity)
+async def process_messages():
+    tasks = [process_signal(msg) for msg in messages]
+    await asyncio.gather(*tasks)
+
+# State machine (too complex)
+class SignalProcessor:
+    def __init__(self):
+        self.state = "waiting"
+    def on_message(self, msg):
+        if self.state == "waiting":
+            self.state = "parsing"
+        elif self.state == "parsing":
+            self.state = "inserting"
+        # ... 20 more lines
+```
+
+**Example - RIGHT** ✅:
+```python
+# Simple linear logic
+for msg in messages:
+    signal = extract_signal(msg)
+    if signal:
+        insert_signal(signal)
+```
+
+---
+
+### How to Apply These Rules
+
+**Before adding ANY code, ask**:
+1. Is this really needed? (Not "might be useful")
+2. Can I do it simpler? (Can SQL replace Python? Can a loop replace async?)
+3. Will this be reused? (Only add if >1 caller)
+
+**If answer is "no" to any**: Delete/simplify the code.
+
+**Preferred complexity order** (simplest first):
+1. **SQL query** (no code, just data)
+2. **Shell one-liner** (temporary, then deleted)
+3. **Simple Python function** (<20 lines, one job)
+4. **n8n workflow node** (existing infrastructure)
+5. **Class/module** (only if >3 callers need it)
+6. **Async/concurrent** (only if queue backs up)
+7. **External service** (only if nothing else works)
+
+---
+
 ## Code Style & Conventions
 
 ### Python
