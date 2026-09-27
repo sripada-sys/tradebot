@@ -27,7 +27,6 @@ tradebot/
 ├── workflows/                   # n8n workflow JSON exports
 ├── scripts/
 │   ├── extract_signals.py       # local signal extractor (validation)
-│   ├── seed_symbols.py          # build stock-name → NSE-symbol map
 │   └── deploy.sh                # one-shot deploy from a fresh Ubuntu box
 └── .gitignore
 ```
