@@ -1,21 +1,16 @@
 {
-  "name": "Phase 1 v2 — WhatsApp Signal Ingest (Regex + LLM + Alert)",
-  "active": false,
-  "settings": {
-    "executionOrder": "v1",
-    "saveDataSuccessExecution": "all",
-    "saveDataErrorExecution": "all",
-    "saveExecutionProgress": true,
-    "saveManualExecutions": true,
-    "timezone": "Asia/Kolkata"
-  },
+  "id": "bf7e41466a2cfac1",
+  "name": "Phase 1.5 - WhatsApp Signal Ingest + Fyers Price/Slippage",
   "nodes": [
     {
       "id": "webhook",
       "name": "WhatsApp Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [220, 400],
+      "position": [
+        220,
+        400
+      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "whatsapp-in",
@@ -30,7 +25,10 @@
       "name": "Filter & normalize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 400],
+      "position": [
+        460,
+        400
+      ],
       "parameters": {
         "language": "javaScript",
         "jsCode": "const TARGET_GROUPS = {\n  '919493561700-1545803250@g.us': 'MSK',\n  '919930599976-1613022548@g.us': 'IPV',\n  '120363427391049099@g.us':      'MoneyMavericks'\n};\n\nconst payload = $input.first().json;\nconst body    = payload.body || payload;\nconst event   = body.event || '';\nconst data    = body.data || {};\nconst key     = data.key || {};\nconst msg     = data.message || {};\n\nconst groupJid  = key.remoteJid || '';\nconst isGroup   = groupJid.endsWith('@g.us');\nconst fromMe    = key.fromMe === true;\nconst msgId     = key.id || '';\nconst senderJid = data.participant || key.participant || '';\nconst pushName  = data.pushName || '';\nconst tsUnix    = data.messageTimestamp || Math.floor(Date.now()/1000);\n\n// Message type detection\nlet msgType = 'text';\nlet mediaUrl = null;\nif (msg.imageMessage) { msgType = 'image'; mediaUrl = msg.imageMessage.url || null; }\nelse if (msg.videoMessage) { msgType = 'video'; mediaUrl = msg.videoMessage.url || null; }\nelse if (msg.documentMessage) { msgType = 'document'; mediaUrl = msg.documentMessage.url || null; }\nelse if (msg.audioMessage) { msgType = 'audio'; mediaUrl = msg.audioMessage.url || null; }\n\n// Text extraction (incl. captions and edit updates)\nconst editedText = msg.editedMessage && msg.editedMessage.message && (\n  msg.editedMessage.message.conversation ||\n  (msg.editedMessage.message.extendedTextMessage && msg.editedMessage.message.extendedTextMessage.text)\n);\nconst text = (\n  msg.conversation ||\n  (msg.extendedTextMessage && msg.extendedTextMessage.text) ||\n  (msg.imageMessage && msg.imageMessage.caption) ||\n  (msg.videoMessage && msg.videoMessage.caption) ||\n  editedText ||\n  ''\n).toString();\n\nconst isEdit = event === 'messages.update' || !!editedText;\n\nif (!isGroup || fromMe) return [];\nif (!TARGET_GROUPS[groupJid]) return [];\n\nconst nowIso  = new Date().toISOString();\nconst postedIso = new Date(tsUnix * 1000).toISOString();\n\nreturn [{\n  json: {\n    message_id:   msgId,\n    group_jid:    groupJid,\n    source_group: TARGET_GROUPS[groupJid],\n    sender_jid:   senderJid,\n    push_name:    pushName,\n    body:         text,\n    message_type: msgType,\n    media_url:    mediaUrl,\n    is_edit:      isEdit,\n    posted_at:    postedIso,\n    received_at:  nowIso,\n    has_text:     !!text.trim()\n  }\n}];"
@@ -41,18 +39,22 @@
       "name": "Log raw message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [700, 220],
+      "position": [
+        700,
+        220
+      ],
       "credentials": {
         "postgres": {
-          "id": "PG_CREDS_PLACEHOLDER",
-          "name": "tradebot-postgres"
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO raw_messages(message_id, group_jid, sender_jid, body, posted_at, message_type, media_url, is_edit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (message_id) DO NOTHING",
-        "queryParameters": "={{ $json.message_id }},={{ $json.group_jid }},={{ $json.sender_jid }},={{ $json.body }},={{ $json.posted_at }},={{ $json.message_type }},={{ $json.media_url }},={{ $json.is_edit }}",
-        "options": {}
+        "options": {
+          "queryReplacement": "={{ [$json.message_id, $json.group_jid, $json.sender_jid, $json.body, $json.posted_at, $json.message_type, $json.media_url || null, $json.is_edit === true] }}"
+        }
       }
     },
     {
@@ -60,16 +62,29 @@
       "name": "Text messages only",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [700, 480],
+      "position": [
+        700,
+        480
+      ],
       "parameters": {
         "conditions": {
-          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose"},
-          "conditions": [{
-            "id": "c1",
-            "leftValue": "={{ $json.has_text }}",
-            "rightValue": true,
-            "operator": {"type": "boolean", "operation": "true", "singleValue": true}
-          }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.has_text }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
           "combinator": "and"
         }
       }
@@ -79,10 +94,13 @@
       "name": "Regex extract",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [940, 480],
+      "position": [
+        940,
+        480
+      ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "// COST-CONTROLLED EXTRACTOR: regex first, cheap filters before LLM\nconst PATTERNS = [\n  /(?:(?<trade_type>POSITIONAL\\s+TRADE|INTRADAY\\s+TRADE|BTST\\s+TRADE|SWING\\s+TRADE)\\s*[\\r\\n]+)?\\s*(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+\\s*Looks\\s+Good\\s+ABOVE\\s+(?<entry>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*SL\\s+(?<sl>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*Targets?\\s+(?<targets>[\\d.\\-+\\s]+?)(?<points>\\s*points?\\s+from\\s+entry)?(?:\\s*[\\r\\n]|$)/is,\n  /(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+.*?(?:Buy|BUY|buy)\\s*(?:above|@|at)?\\s*(?<entry>\\d+(?:\\.\\d+)?).*?(?:SL|Stop\\s*Loss|stoploss)[:\\s]*(?<sl>\\d+(?:\\.\\d+)?).*?(?:Target|TGT|Tgt|target)s?[:\\s]*(?<targets>[\\d.\\s,+\\-]+)/is\n];\n\n// Skip patterns (never send to LLM - saves cost)\nconst SKIP_RE = /🔥|target\\s+hit|booked|profit\\s+booked|good\\s+morning|good\\s+night|thank|congrat|welcome|👍|😀|😂|❤️|🙏/i;\nconst PNL_RE  = /\\+\\d+%|\\-\\d+%|profit\\s+of|loss\\s+of|return\\s+of/i;\nconst LINK_RE = /^https?:\\/\\/|youtube\\.com|youtu\\.be|t\\.me/i;\n\n// Signal-likely heuristic: message must have BOTH a number AND a signal keyword\nconst NUMBER_RE  = /\\d+/;\nconst KEYWORD_RE = /(?:buy|sell|target|sl|stoploss|stop\\s*loss|tgt|entry|above|below|positional|intraday|swing|btst)/i;\n\nconst MAX_LEN_FOR_LLM = 2000;\n\nconst input = $input.first().json;\nconst body  = (input.body || '').toString();\nconst len   = body.length;\n\n// Try regex first (0 cost)\nfor (const re of PATTERNS) {\n  const m = body.match(re);\n  if (!m || !m.groups) continue;\n  const g = m.groups;\n  const entry = parseFloat(g.entry);\n  const sl    = parseFloat(g.sl);\n  if (isNaN(entry) || isNaN(sl)) continue;\n  const rawTargets = (g.targets || '').replace(/[+,\\s]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').split('-').filter(Boolean);\n  let targets = rawTargets.map(Number).filter(n => !isNaN(n));\n  const mode = g.points ? 'points_from_entry' : 'absolute';\n  if (mode === 'points_from_entry') targets = targets.map(t => Number((entry + t).toFixed(2)));\n  return [{\n    json: {\n      ...input,\n      trade_type:     (g.trade_type || '').toUpperCase().trim() || null,\n      stock_name_raw: g.stock.replace(/\\s+/g,' ').trim(),\n      entry_price:    entry,\n      stop_loss:      sl,\n      targets,\n      targets_mode:   mode,\n      extractor:      'regex',\n      confidence:     0.9,\n      extractor_result: 'ok'\n    }\n  }];\n}\n\n// Regex missed - decide whether to spend LLM $\nconst llmEnabled = ($env.LLM_ENABLED || 'true').toLowerCase() !== 'false';\nlet skipReason = null;\nif (!llmEnabled)                skipReason = 'llm_disabled';\nelse if (len > MAX_LEN_FOR_LLM) skipReason = 'too_long';\nelse if (len < 20)              skipReason = 'too_short';\nelse if (SKIP_RE.test(body))    skipReason = 'skip_pattern';\nelse if (PNL_RE.test(body))     skipReason = 'pnl_update';\nelse if (LINK_RE.test(body))    skipReason = 'link_only';\nelse if (!NUMBER_RE.test(body)) skipReason = 'no_number';\nelse if (!KEYWORD_RE.test(body))skipReason = 'no_keyword';\n\nif (skipReason) {\n  return [{ json: { ...input, extractor_result: 'skipped_' + skipReason } }];\n}\n\nreturn [{ json: { ...input, extractor_result: 'regex_miss' } }];"
+        "jsCode": "// COST-CONTROLLED EXTRACTOR: regex first, cheap filters before LLM\nconst PATTERNS = [\n  /(?:(?<trade_type>POSITIONAL\\s+TRADE|INTRADAY\\s+TRADE|BTST\\s+TRADE|SWING\\s+TRADE)\\s*[\\r\\n]+)?\\s*(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+\\s*Looks\\s+Good\\s+ABOVE\\s+(?<entry>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*SL\\s+(?<sl>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*Targets?\\s+(?<targets>[\\d.\\-+\\s]+?)(?<points>\\s*points?\\s+from\\s+entry)?(?:\\s*[\\r\\n]|$)/is,\n  /(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+.*?(?:Buy|BUY|buy)\\s*(?:above|@|at)?\\s*(?<entry>\\d+(?:\\.\\d+)?).*?(?:SL|Stop\\s*Loss|stoploss)[:\\s]*(?<sl>\\d+(?:\\.\\d+)?).*?(?:Target|TGT|Tgt|target)s?[:\\s]*(?<targets>[\\d.\\s,+\\-]+)/is\n];\n\n// Skip patterns (never send to LLM - saves cost)\nconst SKIP_RE = /\ud83d\udd25|target\\s+hit|booked|profit\\s+booked|good\\s+morning|good\\s+night|thank|congrat|welcome|\ud83d\udc4d|\ud83d\ude00|\ud83d\ude02|\u2764\ufe0f|\ud83d\ude4f/i;\nconst PNL_RE  = /\\+\\d+%|\\-\\d+%|profit\\s+of|loss\\s+of|return\\s+of/i;\nconst LINK_RE = /^https?:\\/\\/|youtube\\.com|youtu\\.be|t\\.me/i;\n\n// Signal-likely heuristic: message must have BOTH a number AND a signal keyword\nconst NUMBER_RE  = /\\d+/;\nconst KEYWORD_RE = /(?:buy|sell|target|sl|stoploss|stop\\s*loss|tgt|entry|above|below|positional|intraday|swing|btst)/i;\n\nconst MAX_LEN_FOR_LLM = 2000;\n\nconst input = $input.first().json;\nconst body  = (input.body || '').toString();\nconst len   = body.length;\n\n// Try regex first (0 cost)\nfor (const re of PATTERNS) {\n  const m = body.match(re);\n  if (!m || !m.groups) continue;\n  const g = m.groups;\n  const entry = parseFloat(g.entry);\n  const sl    = parseFloat(g.sl);\n  if (isNaN(entry) || isNaN(sl)) continue;\n  const rawTargets = (g.targets || '').replace(/[+,\\s]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').split('-').filter(Boolean);\n  let targets = rawTargets.map(Number).filter(n => !isNaN(n));\n  const mode = g.points ? 'points_from_entry' : 'absolute';\n  if (mode === 'points_from_entry') targets = targets.map(t => Number((entry + t).toFixed(2)));\n  return [{\n    json: {\n      ...input,\n      trade_type:     (g.trade_type || '').toUpperCase().trim() || null,\n      stock_name_raw: g.stock.replace(/\\s+/g,' ').trim(),\n      entry_price:    entry,\n      stop_loss:      sl,\n      targets,\n      targets_mode:   mode,\n      extractor:      'regex',\n      confidence:     0.9,\n      extractor_result: 'ok'\n    }\n  }];\n}\n\n// Regex missed - decide whether to spend LLM $\nconst llmEnabled = ($env.LLM_ENABLED || 'true').toLowerCase() !== 'false';\nlet skipReason = null;\nif (!llmEnabled)                skipReason = 'llm_disabled';\nelse if (len > MAX_LEN_FOR_LLM) skipReason = 'too_long';\nelse if (len < 20)              skipReason = 'too_short';\nelse if (SKIP_RE.test(body))    skipReason = 'skip_pattern';\nelse if (PNL_RE.test(body))     skipReason = 'pnl_update';\nelse if (LINK_RE.test(body))    skipReason = 'link_only';\nelse if (!NUMBER_RE.test(body)) skipReason = 'no_number';\nelse if (!KEYWORD_RE.test(body))skipReason = 'no_keyword';\n\nif (skipReason) {\n  return [{ json: { ...input, extractor_result: 'skipped_' + skipReason } }];\n}\n\nreturn [{ json: { ...input, extractor_result: 'regex_miss' } }];"
       }
     },
     {
@@ -90,16 +108,28 @@
       "name": "Regex succeeded?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1180, 480],
+      "position": [
+        1180,
+        480
+      ],
       "parameters": {
         "conditions": {
-          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose"},
-          "conditions": [{
-            "id": "c1",
-            "leftValue": "={{ $json.extractor_result }}",
-            "rightValue": "ok",
-            "operator": {"type": "string", "operation": "equals"}
-          }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.extractor_result }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
           "combinator": "and"
         }
       }
@@ -109,23 +139,40 @@
       "name": "LLM fallback (Gemini Flash)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1180, 660],
+      "position": [
+        1180,
+        660
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {"name": "Authorization", "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"},
-            {"name": "Content-Type", "value": "application/json"},
-            {"name": "HTTP-Referer", "value": "https://github.com/sripada-sys/tradebot"},
-            {"name": "X-Title", "value": "Tradebot Signal Extractor"}
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "https://github.com/sripada-sys/tradebot"
+            },
+            {
+              "name": "X-Title",
+              "value": "Tradebot Signal Extractor"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"model\": \"google/gemini-2.0-flash-exp:free\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You extract Indian stock trading signals from WhatsApp messages. Return STRICT JSON only. Schema: {\\\"is_signal\\\": bool, \\\"trade_type\\\": \\\"POSITIONAL|INTRADAY|BTST|SWING|null\\\", \\\"stock_name\\\": \\\"string|null\\\", \\\"entry_price\\\": number|null, \\\"stop_loss\\\": number|null, \\\"targets\\\": [number], \\\"targets_mode\\\": \\\"absolute|points_from_entry\\\", \\\"confidence\\\": 0.0-1.0}. Set is_signal=false for target-hits, PnL updates, opinions, or non-trade content. NEVER wrap output in markdown code fences.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($json.body) }} }\n  ],\n  \"temperature\": 0,\n  \"max_tokens\": 300,\n  \"response_format\": {\"type\": \"json_object\"}\n}",
-        "options": {"timeout": 15000}
+        "options": {
+          "timeout": 15000
+        }
       }
     },
     {
@@ -133,7 +180,10 @@
       "name": "Parse LLM response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1420, 660],
+      "position": [
+        1420,
+        660
+      ],
       "parameters": {
         "language": "javaScript",
         "jsCode": "const original = $('Regex extract').first().json;\nconst llmResp  = $input.first().json;\n\n// Cost per 1M tokens (USD) for allowed models\nconst PRICING = {\n  'google/gemini-2.0-flash-exp:free': { in: 0,      out: 0 },\n  'google/gemini-flash-1.5-8b':       { in: 0.038,  out: 0.15 },\n  'google/gemini-flash-1.5':          { in: 0.075,  out: 0.30 }\n};\n\nconst model  = llmResp.model || 'google/gemini-2.0-flash-exp:free';\nconst usage  = llmResp.usage || {};\nconst inTok  = usage.prompt_tokens || 0;\nconst outTok = usage.completion_tokens || 0;\nconst price  = PRICING[model] || { in: 0.1, out: 0.4 };\nconst costUsd = ((inTok * price.in) + (outTok * price.out)) / 1_000_000;\n\nlet parsed = null;\nlet rawJson = null;\ntry {\n  const content = llmResp.choices && llmResp.choices[0] && llmResp.choices[0].message && llmResp.choices[0].message.content;\n  if (content) {\n    rawJson = content;\n    const clean = content.replace(/```json\\s*|```/g, '').trim();\n    parsed = JSON.parse(clean);\n  }\n} catch (e) {\n  return [{ json: { ...original, llm_error: e.message, llm_raw: rawJson, skip_insert: true, llm_model: model, llm_in_tokens: inTok, llm_out_tokens: outTok, llm_cost_usd: costUsd } }];\n}\n\nconst common = { llm_model: model, llm_in_tokens: inTok, llm_out_tokens: outTok, llm_cost_usd: costUsd, llm_raw: rawJson };\n\nif (!parsed || !parsed.is_signal) {\n  return [{ json: { ...original, ...common, extractor: 'llm', skip_insert: true } }];\n}\n\nlet targets = Array.isArray(parsed.targets) ? parsed.targets.map(Number).filter(n => !isNaN(n)) : [];\nif (parsed.targets_mode === 'points_from_entry' && parsed.entry_price) {\n  targets = targets.map(t => Number((parsed.entry_price + t).toFixed(2)));\n}\n\nreturn [{\n  json: {\n    ...original,\n    ...common,\n    trade_type:     parsed.trade_type || null,\n    stock_name_raw: parsed.stock_name || null,\n    entry_price:    parsed.entry_price || null,\n    stop_loss:      parsed.stop_loss || null,\n    targets,\n    targets_mode:   parsed.targets_mode || 'absolute',\n    extractor:      'llm',\n    confidence:     Math.min(0.75, (parsed.confidence || 0.6)),\n    skip_insert:    false\n  }\n}];"
@@ -144,16 +194,29 @@
       "name": "LLM signal?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1660, 660],
+      "position": [
+        1660,
+        660
+      ],
       "parameters": {
         "conditions": {
-          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose"},
-          "conditions": [{
-            "id": "c1",
-            "leftValue": "={{ $json.skip_insert }}",
-            "rightValue": false,
-            "operator": {"type": "boolean", "operation": "false", "singleValue": true}
-          }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.skip_insert }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
           "combinator": "and"
         }
       }
@@ -163,18 +226,22 @@
       "name": "Log LLM usage",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1660, 820],
+      "position": [
+        1660,
+        820
+      ],
       "credentials": {
         "postgres": {
-          "id": "PG_CREDS_PLACEHOLDER",
-          "name": "tradebot-postgres"
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO llm_usage(message_id, model, in_tokens, out_tokens, cost_usd, was_signal, error) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        "queryParameters": "={{ $json.message_id }},={{ $json.llm_model }},={{ $json.llm_in_tokens || 0 }},={{ $json.llm_out_tokens || 0 }},={{ $json.llm_cost_usd || 0 }},={{ $json.skip_insert === false }},={{ $json.llm_error || null }}",
-        "options": {}
+        "options": {
+          "queryReplacement": "={{ [$json.message_id, $json.llm_model, $json.llm_in_tokens || 0, $json.llm_out_tokens || 0, $json.llm_cost_usd || 0, $json.skip_insert === false, $json.llm_error || null] }}"
+        }
       }
     },
     {
@@ -182,26 +249,35 @@
       "name": "Merge regex+LLM",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
-      "position": [1900, 560],
-      "parameters": {"mode": "combine", "combinationMode": "mergeByPosition", "options": {}}
+      "position": [
+        1900,
+        560
+      ],
+      "parameters": {
+        "mode": "append"
+      }
     },
     {
       "id": "resolve-symbol",
       "name": "Resolve NSE symbol",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2140, 560],
+      "position": [
+        2140,
+        560
+      ],
       "credentials": {
         "postgres": {
-          "id": "PG_CREDS_PLACEHOLDER",
-          "name": "tradebot-postgres"
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT nse_symbol FROM symbols WHERE UPPER(stock_name_raw) = UPPER($1) LIMIT 1",
-        "queryParameters": "={{ $json.stock_name_raw }}",
-        "options": {}
+        "options": {
+          "queryReplacement": "={{ [$json.stock_name_raw] }}"
+        }
       }
     },
     {
@@ -209,7 +285,10 @@
       "name": "Merge symbol back",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2380, 560],
+      "position": [
+        2380,
+        560
+      ],
       "parameters": {
         "language": "javaScript",
         "jsCode": "const idx  = $itemIndex;\nconst prev = $('Merge regex+LLM').all()[idx].json;\nconst sym  = $input.all()[idx] ? $input.all()[idx].json : {};\nreturn [{ json: { ...prev, nse_symbol: sym.nse_symbol || null } }];"
@@ -220,18 +299,22 @@
       "name": "Insert signal",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2620, 560],
+      "position": [
+        2620,
+        560
+      ],
       "credentials": {
         "postgres": {
-          "id": "PG_CREDS_PLACEHOLDER",
-          "name": "tradebot-postgres"
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO signals(source_group, group_jid, message_id, sender_jid, raw_text, trade_type, stock_name_raw, nse_symbol, entry_price, stop_loss, targets, targets_mode, extractor, confidence, posted_at, received_at, llm_raw, llm_model, media_url, is_edit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (message_id) DO NOTHING RETURNING id, nse_symbol, entry_price, stop_loss, source_group, stock_name_raw, extractor, confidence",
-        "queryParameters": "={{ $json.source_group }},={{ $json.group_jid }},={{ $json.message_id }},={{ $json.sender_jid }},={{ $json.body }},={{ $json.trade_type }},={{ $json.stock_name_raw }},={{ $json.nse_symbol }},={{ $json.entry_price }},={{ $json.stop_loss }},={{ '{' + ($json.targets || []).join(',') + '}' }},={{ $json.targets_mode }},={{ $json.extractor }},={{ $json.confidence }},={{ $json.posted_at }},={{ $json.received_at }},={{ $json.llm_raw }},={{ $json.llm_model }},={{ $json.media_url }},={{ $json.is_edit }}",
-        "options": {}
+        "options": {
+          "queryReplacement": "={{ [$json.source_group, $json.group_jid, $json.message_id, $json.sender_jid, $json.body, $json.trade_type, $json.stock_name_raw, $json.nse_symbol, $json.entry_price, $json.stop_loss, '{' + ($json.targets || []).join(',') + '}', $json.targets_mode, $json.extractor, $json.confidence, $json.posted_at, $json.received_at, $json.llm_raw || null, $json.llm_model || null, $json.media_url || null, $json.is_edit === true] }}"
+        }
       }
     },
     {
@@ -239,18 +322,22 @@
       "name": "Seed market context (Fyers TBD)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2860, 460],
+      "position": [
+        2860,
+        460
+      ],
       "credentials": {
         "postgres": {
-          "id": "PG_CREDS_PLACEHOLDER",
-          "name": "tradebot-postgres"
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
         }
       },
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO signals_market_context(signal_id, nse_symbol, advisor_entry, source) SELECT $1::bigint, $2, $3::numeric, 'pending' WHERE $1 IS NOT NULL",
-        "queryParameters": "={{ $json.id }},={{ $json.nse_symbol }},={{ $json.entry_price }}",
-        "options": {}
+        "options": {
+          "queryReplacement": "={{ [$json.id || null, $json.nse_symbol, $json.entry_price] }}"
+        }
       }
     },
     {
@@ -258,10 +345,13 @@
       "name": "Build alert text",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2860, 660],
+      "position": [
+        2860,
+        660
+      ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const s = $input.first().json;\nif (!s || !s.id) return [];\n\nconst targetsArr = ($('Merge symbol back').first().json.targets || []);\nconst symbol   = s.nse_symbol || s.stock_name_raw || 'UNKNOWN';\nconst extractor = (s.extractor || '').toUpperCase();\nconst conf     = s.confidence ? Number(s.confidence).toFixed(2) : 'n/a';\n\nconst lines = [\n  '🚨 *Signal captured*',\n  `Source: ${s.source_group}`,\n  `Stock:  ${symbol}`,\n  `Entry:  ₹${s.entry_price}`,\n  `SL:     ₹${s.stop_loss}`,\n  `Tgts:   ${targetsArr.length ? targetsArr.join(', ') : '—'}`,\n  `Src:    ${extractor} (conf ${conf})`\n];\nif (!s.nse_symbol) lines.push('⚠️  Symbol not resolved — manual review');\n\nreturn [{ json: { alert_text: lines.join('\\n'), signal_id: s.id } }];"
+        "jsCode": "const s = $input.first().json;\nif (!s || !s.id) return [];\n\nconst targetsArr = ($('Merge symbol back').first().json.targets || []);\nconst symbol   = s.nse_symbol || s.stock_name_raw || 'UNKNOWN';\nconst extractor = (s.extractor || '').toUpperCase();\nconst conf     = s.confidence ? Number(s.confidence).toFixed(2) : 'n/a';\n\nconst lines = [\n  '\ud83d\udea8 *Signal captured*',\n  `Source: ${s.source_group}`,\n  `Stock:  ${symbol}`,\n  `Entry:  \u20b9${s.entry_price}`,\n  `SL:     \u20b9${s.stop_loss}`,\n  `Tgts:   ${targetsArr.length ? targetsArr.join(', ') : '\u2014'}`,\n  `Src:    ${extractor} (conf ${conf})`\n];\nif (!s.nse_symbol) lines.push('\u26a0\ufe0f  Symbol not resolved \u2014 manual review');\n\nreturn [{ json: { alert_text: lines.join('\\n'), signal_id: s.id } }];"
       }
     },
     {
@@ -269,83 +359,305 @@
       "name": "Self-DM alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3100, 660],
+      "position": [
+        3100,
+        660
+      ],
       "parameters": {
         "method": "POST",
         "url": "http://evolution:8080/message/sendText/msk-bot",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {"name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}"},
-            {"name": "Content-Type", "value": "application/json"}
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"number\": \"919500029155\",\n  \"text\": {{ JSON.stringify($json.alert_text) }}\n}",
-        "options": {"timeout": 10000}
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "get-fyers-token",
+      "name": "Get Fyers token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2860,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT access_token FROM fyers_token WHERE id=1",
+        "options": {}
+      }
+    },
+    {
+      "id": "fetch-fyers-price",
+      "name": "Fetch Fyers price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3080,
+        620
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api-t1.fyers.in/data/quotes?symbols=NSE:{{ $('Insert signal').item.json.nse_symbol }}-EQ",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.FYERS_APP_ID }}:{{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "update-market-ctx",
+      "name": "Update market context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3300,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "kbGArBxBujC2dxMJ",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE signals_market_context SET price_at_capture = $1::numeric, slippage_pct = CASE WHEN $2::numeric > 0 THEN (($1::numeric - $2::numeric) / $2::numeric) * 100 ELSE NULL END, captured_at = NOW(), source = 'fyers' WHERE signal_id = $3::bigint",
+        "options": {
+          "queryReplacement": "={{ [$json.d[0].v.lp, $('Insert signal').item.json.entry_price, $('Insert signal').item.json.id] }}"
+        }
       }
     }
   ],
   "connections": {
     "WhatsApp Webhook": {
-      "main": [[{"node": "Filter & normalize", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Filter & normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Filter & normalize": {
-      "main": [[
-        {"node": "Log raw message", "type": "main", "index": 0},
-        {"node": "Text messages only", "type": "main", "index": 0}
-      ]]
+      "main": [
+        [
+          {
+            "node": "Log raw message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Text messages only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Text messages only": {
       "main": [
-        [{"node": "Regex extract", "type": "main", "index": 0}],
+        [
+          {
+            "node": "Regex extract",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Regex extract": {
-      "main": [[{"node": "Regex succeeded?", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Regex succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Regex succeeded?": {
       "main": [
-        [{"node": "Merge regex+LLM", "type": "main", "index": 0}],
-        [{"node": "LLM fallback (Gemini Flash)", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Merge regex+LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM fallback (Gemini Flash)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "LLM fallback (Gemini Flash)": {
-      "main": [[{"node": "Parse LLM response", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Parse LLM response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse LLM response": {
-      "main": [[
-        {"node": "LLM signal?", "type": "main", "index": 0},
-        {"node": "Log LLM usage", "type": "main", "index": 0}
-      ]]
+      "main": [
+        [
+          {
+            "node": "LLM signal?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log LLM usage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "LLM signal?": {
       "main": [
-        [{"node": "Merge regex+LLM", "type": "main", "index": 1}],
+        [
+          {
+            "node": "Merge regex+LLM",
+            "type": "main",
+            "index": 1
+          }
+        ],
         []
       ]
     },
     "Merge regex+LLM": {
-      "main": [[{"node": "Resolve NSE symbol", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Resolve NSE symbol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Resolve NSE symbol": {
-      "main": [[{"node": "Merge symbol back", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Merge symbol back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Merge symbol back": {
-      "main": [[{"node": "Insert signal", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Insert signal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Insert signal": {
-      "main": [[
-        {"node": "Seed market context (Fyers TBD)", "type": "main", "index": 0},
-        {"node": "Build alert text", "type": "main", "index": 0}
-      ]]
+      "main": [
+        [
+          {
+            "node": "Seed market context (Fyers TBD)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build alert text",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Fyers token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build alert text": {
-      "main": [[{"node": "Self-DM alert", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Self-DM alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Fyers token": {
+      "main": [
+        [
+          {
+            "node": "Fetch Fyers price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Fyers price": {
+      "main": [
+        [
+          {
+            "node": "Update market context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "pinData": {},
-  "staticData": null
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "timezone": "Asia/Kolkata"
+  }
 }

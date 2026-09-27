@@ -18,8 +18,8 @@
 ## Phase Status
 
 - **Phase 0** (infra) — ✅ done
-- **Phase 1** (signal capture) — 🟡 pipeline proven with test signal (RELIANCE, id=1). Awaiting first real signal from MSK/IPV/MoneyMavericks to close.
-- **Phase 1.5** (Fyers price + slippage) — ⏳ next
+- **Phase 1** (signal capture) — ✅ pipeline verified end-to-end with simulated real signal (webhook → filter → regex → insert). Real advisor signal still pending (waiting on live market chatter).
+- **Phase 1.5** (Fyers price + slippage) — ✅ done. Signal insert now triggers live Fyers price lookup + auto slippage calc, verified: RELIANCE @1200 advisor entry vs 1226 live price = +2.167% slippage.
 - **Phase 2/3/4** — pending
 
 ## Target Groups (hardcoded in workflow)
@@ -41,10 +41,18 @@ ssh root@65.20.79.45 "docker exec stack-postgres psql -U stackadmin -d n8n -c 'S
 ssh root@65.20.79.45 "docker exec stack-postgres psql -U stackadmin -d n8n -c 'SELECT * FROM v_llm_daily_cost;'"
 ```
 
+## Fixed Bugs (found while wiring Fyers)
+
+These were **latent since Phase 1**, never triggered because no real signal had made it through the full pipeline before:
+- `Log raw message`, `Insert signal`, `Log LLM usage`, `Resolve NSE symbol`, `Seed market context` — all used a fragile comma-joined `queryParameters` string that broke on null/boolean values. Fixed to use `options.queryReplacement` with a JS array (the pattern proven working in the Fyers auth-catcher).
+- `Merge regex+LLM` was set to `mergeByPosition` mode, which requires "Fields to Match" — but design intent was "take whichever branch has data". Fixed to `append` mode (no field matching needed since only one branch ever has output).
+- `symbols` table didn't have RELIANCE seeded (only 190 names from historical chat export). Added directly via SQL. **Action item**: seed more common NSE names as real signals reveal gaps — no code needed, just `INSERT INTO symbols ...`.
+
+**Lesson for future changes**: n8n v2.40.7 sometimes keeps executing a stale in-memory compiled workflow even after DB updates + restart. When node/connection edits don't seem to take effect, do a full delete + reimport (see workflow_history/webhook_entity/workflow_published_version cascade in git history) rather than patching in place.
+
 ## Known Non-Issues
 
-- `raw_messages` is empty → **by design**. Filter runs before Log node; non-target groups and non-text messages (reactions, receipts) are dropped upstream. If we want raw audit later, move Log before Filter.
-- v2 workflow has 17 nodes — more than the 3 rules would suggest. Not simplifying yet; will revisit if it causes real pain.
+- v2 workflow has 20 nodes (17 orig + 3 Fyers) — more than the 3 rules would suggest. Not simplifying yet; will revisit if it causes real pain.
 
 ## Fyers Daily Re-Auth (SEBI restriction — no automated refresh)
 
