@@ -82,7 +82,7 @@
       "position": [940, 480],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const PATTERNS = [\n  /(?:(?<trade_type>POSITIONAL\\s+TRADE|INTRADAY\\s+TRADE|BTST\\s+TRADE|SWING\\s+TRADE)\\s*[\\r\\n]+)?\\s*(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+\\s*Looks\\s+Good\\s+ABOVE\\s+(?<entry>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*SL\\s+(?<sl>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*Targets?\\s+(?<targets>[\\d.\\-+\\s]+?)(?<points>\\s*points?\\s+from\\s+entry)?(?:\\s*[\\r\\n]|$)/is,\n  /(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+.*?(?:Buy|BUY|buy)\\s*(?:above|@|at)?\\s*(?<entry>\\d+(?:\\.\\d+)?).*?(?:SL|Stop\\s*Loss|stoploss)[:\\s]*(?<sl>\\d+(?:\\.\\d+)?).*?(?:Target|TGT|Tgt|target)s?[:\\s]*(?<targets>[\\d.\\s,+\\-]+)/is\n];\n\nconst TARGET_HIT_RE = /🔥|target\\s+hit|booked/i;\n\nconst input = $input.first().json;\nconst body  = (input.body || '').toString();\n\nif (TARGET_HIT_RE.test(body)) {\n  return [{ json: { ...input, extractor_result: 'target_hit_skip' } }];\n}\n\nfor (const re of PATTERNS) {\n  const m = body.match(re);\n  if (!m || !m.groups) continue;\n  const g = m.groups;\n  const entry = parseFloat(g.entry);\n  const sl    = parseFloat(g.sl);\n  if (isNaN(entry) || isNaN(sl)) continue;\n  const rawTargets = (g.targets || '').replace(/[+,\\s]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').split('-').filter(Boolean);\n  let targets = rawTargets.map(Number).filter(n => !isNaN(n));\n  const mode = g.points ? 'points_from_entry' : 'absolute';\n  if (mode === 'points_from_entry') targets = targets.map(t => Number((entry + t).toFixed(2)));\n  return [{\n    json: {\n      ...input,\n      trade_type:     (g.trade_type || '').toUpperCase().trim() || null,\n      stock_name_raw: g.stock.replace(/\\s+/g,' ').trim(),\n      entry_price:    entry,\n      stop_loss:      sl,\n      targets,\n      targets_mode:   mode,\n      extractor:      'regex',\n      confidence:     0.9,\n      extractor_result: 'ok'\n    }\n  }];\n}\n\nreturn [{ json: { ...input, extractor_result: 'regex_miss' } }];"
+        "jsCode": "// COST-CONTROLLED EXTRACTOR: regex first, cheap filters before LLM\nconst PATTERNS = [\n  /(?:(?<trade_type>POSITIONAL\\s+TRADE|INTRADAY\\s+TRADE|BTST\\s+TRADE|SWING\\s+TRADE)\\s*[\\r\\n]+)?\\s*(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+\\s*Looks\\s+Good\\s+ABOVE\\s+(?<entry>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*SL\\s+(?<sl>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*Targets?\\s+(?<targets>[\\d.\\-+\\s]+?)(?<points>\\s*points?\\s+from\\s+entry)?(?:\\s*[\\r\\n]|$)/is,\n  /(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+.*?(?:Buy|BUY|buy)\\s*(?:above|@|at)?\\s*(?<entry>\\d+(?:\\.\\d+)?).*?(?:SL|Stop\\s*Loss|stoploss)[:\\s]*(?<sl>\\d+(?:\\.\\d+)?).*?(?:Target|TGT|Tgt|target)s?[:\\s]*(?<targets>[\\d.\\s,+\\-]+)/is\n];\n\n// Skip patterns (never send to LLM - saves cost)\nconst SKIP_RE = /🔥|target\\s+hit|booked|profit\\s+booked|good\\s+morning|good\\s+night|thank|congrat|welcome|👍|😀|😂|❤️|🙏/i;\nconst PNL_RE  = /\\+\\d+%|\\-\\d+%|profit\\s+of|loss\\s+of|return\\s+of/i;\nconst LINK_RE = /^https?:\\/\\/|youtube\\.com|youtu\\.be|t\\.me/i;\n\n// Signal-likely heuristic: message must have BOTH a number AND a signal keyword\nconst NUMBER_RE  = /\\d+/;\nconst KEYWORD_RE = /(?:buy|sell|target|sl|stoploss|stop\\s*loss|tgt|entry|above|below|positional|intraday|swing|btst)/i;\n\nconst MAX_LEN_FOR_LLM = 2000;\n\nconst input = $input.first().json;\nconst body  = (input.body || '').toString();\nconst len   = body.length;\n\n// Try regex first (0 cost)\nfor (const re of PATTERNS) {\n  const m = body.match(re);\n  if (!m || !m.groups) continue;\n  const g = m.groups;\n  const entry = parseFloat(g.entry);\n  const sl    = parseFloat(g.sl);\n  if (isNaN(entry) || isNaN(sl)) continue;\n  const rawTargets = (g.targets || '').replace(/[+,\\s]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').split('-').filter(Boolean);\n  let targets = rawTargets.map(Number).filter(n => !isNaN(n));\n  const mode = g.points ? 'points_from_entry' : 'absolute';\n  if (mode === 'points_from_entry') targets = targets.map(t => Number((entry + t).toFixed(2)));\n  return [{\n    json: {\n      ...input,\n      trade_type:     (g.trade_type || '').toUpperCase().trim() || null,\n      stock_name_raw: g.stock.replace(/\\s+/g,' ').trim(),\n      entry_price:    entry,\n      stop_loss:      sl,\n      targets,\n      targets_mode:   mode,\n      extractor:      'regex',\n      confidence:     0.9,\n      extractor_result: 'ok'\n    }\n  }];\n}\n\n// Regex missed - decide whether to spend LLM $\nconst llmEnabled = ($env.LLM_ENABLED || 'true').toLowerCase() !== 'false';\nlet skipReason = null;\nif (!llmEnabled)                skipReason = 'llm_disabled';\nelse if (len > MAX_LEN_FOR_LLM) skipReason = 'too_long';\nelse if (len < 20)              skipReason = 'too_short';\nelse if (SKIP_RE.test(body))    skipReason = 'skip_pattern';\nelse if (PNL_RE.test(body))     skipReason = 'pnl_update';\nelse if (LINK_RE.test(body))    skipReason = 'link_only';\nelse if (!NUMBER_RE.test(body)) skipReason = 'no_number';\nelse if (!KEYWORD_RE.test(body))skipReason = 'no_keyword';\n\nif (skipReason) {\n  return [{ json: { ...input, extractor_result: 'skipped_' + skipReason } }];\n}\n\nreturn [{ json: { ...input, extractor_result: 'regex_miss' } }];"
       }
     },
     {
@@ -136,7 +136,7 @@
       "position": [1420, 660],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const original = $('Regex extract').first().json;\nconst llmResp  = $input.first().json;\n\nlet parsed = null;\nlet rawJson = null;\ntry {\n  const content = llmResp.choices && llmResp.choices[0] && llmResp.choices[0].message && llmResp.choices[0].message.content;\n  if (content) {\n    rawJson = content;\n    // Strip code fences if present\n    const clean = content.replace(/```json\\s*|```/g, '').trim();\n    parsed = JSON.parse(clean);\n  }\n} catch (e) {\n  return [{ json: { ...original, llm_error: e.message, llm_raw: rawJson, skip_insert: true } }];\n}\n\nif (!parsed || !parsed.is_signal) {\n  return [{ json: { ...original, llm_raw: rawJson, extractor: 'llm', skip_insert: true } }];\n}\n\nlet targets = Array.isArray(parsed.targets) ? parsed.targets.map(Number).filter(n => !isNaN(n)) : [];\nif (parsed.targets_mode === 'points_from_entry' && parsed.entry_price) {\n  targets = targets.map(t => Number((parsed.entry_price + t).toFixed(2)));\n}\n\nreturn [{\n  json: {\n    ...original,\n    trade_type:     parsed.trade_type || null,\n    stock_name_raw: parsed.stock_name || null,\n    entry_price:    parsed.entry_price || null,\n    stop_loss:      parsed.stop_loss || null,\n    targets,\n    targets_mode:   parsed.targets_mode || 'absolute',\n    extractor:      'llm',\n    confidence:     Math.min(0.75, (parsed.confidence || 0.6)),\n    llm_model:      'google/gemini-2.0-flash-exp',\n    llm_raw:        rawJson,\n    skip_insert:    false\n  }\n}];"
+        "jsCode": "const original = $('Regex extract').first().json;\nconst llmResp  = $input.first().json;\n\n// Cost per 1M tokens (USD) for allowed models\nconst PRICING = {\n  'google/gemini-2.0-flash-exp:free': { in: 0,      out: 0 },\n  'google/gemini-flash-1.5-8b':       { in: 0.038,  out: 0.15 },\n  'google/gemini-flash-1.5':          { in: 0.075,  out: 0.30 }\n};\n\nconst model  = llmResp.model || 'google/gemini-2.0-flash-exp:free';\nconst usage  = llmResp.usage || {};\nconst inTok  = usage.prompt_tokens || 0;\nconst outTok = usage.completion_tokens || 0;\nconst price  = PRICING[model] || { in: 0.1, out: 0.4 };\nconst costUsd = ((inTok * price.in) + (outTok * price.out)) / 1_000_000;\n\nlet parsed = null;\nlet rawJson = null;\ntry {\n  const content = llmResp.choices && llmResp.choices[0] && llmResp.choices[0].message && llmResp.choices[0].message.content;\n  if (content) {\n    rawJson = content;\n    const clean = content.replace(/```json\\s*|```/g, '').trim();\n    parsed = JSON.parse(clean);\n  }\n} catch (e) {\n  return [{ json: { ...original, llm_error: e.message, llm_raw: rawJson, skip_insert: true, llm_model: model, llm_in_tokens: inTok, llm_out_tokens: outTok, llm_cost_usd: costUsd } }];\n}\n\nconst common = { llm_model: model, llm_in_tokens: inTok, llm_out_tokens: outTok, llm_cost_usd: costUsd, llm_raw: rawJson };\n\nif (!parsed || !parsed.is_signal) {\n  return [{ json: { ...original, ...common, extractor: 'llm', skip_insert: true } }];\n}\n\nlet targets = Array.isArray(parsed.targets) ? parsed.targets.map(Number).filter(n => !isNaN(n)) : [];\nif (parsed.targets_mode === 'points_from_entry' && parsed.entry_price) {\n  targets = targets.map(t => Number((parsed.entry_price + t).toFixed(2)));\n}\n\nreturn [{\n  json: {\n    ...original,\n    ...common,\n    trade_type:     parsed.trade_type || null,\n    stock_name_raw: parsed.stock_name || null,\n    entry_price:    parsed.entry_price || null,\n    stop_loss:      parsed.stop_loss || null,\n    targets,\n    targets_mode:   parsed.targets_mode || 'absolute',\n    extractor:      'llm',\n    confidence:     Math.min(0.75, (parsed.confidence || 0.6)),\n    skip_insert:    false\n  }\n}];"
       }
     },
     {
@@ -156,6 +156,25 @@
           }],
           "combinator": "and"
         }
+      }
+    },
+    {
+      "id": "log-llm-usage",
+      "name": "Log LLM usage",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1660, 820],
+      "credentials": {
+        "postgres": {
+          "id": "PG_CREDS_PLACEHOLDER",
+          "name": "tradebot-postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO llm_usage(message_id, model, in_tokens, out_tokens, cost_usd, was_signal, error) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        "queryParameters": "={{ $json.message_id }},={{ $json.llm_model }},={{ $json.llm_in_tokens || 0 }},={{ $json.llm_out_tokens || 0 }},={{ $json.llm_cost_usd || 0 }},={{ $json.skip_insert === false }},={{ $json.llm_error || null }}",
+        "options": {}
       }
     },
     {
@@ -297,7 +316,10 @@
       "main": [[{"node": "Parse LLM response", "type": "main", "index": 0}]]
     },
     "Parse LLM response": {
-      "main": [[{"node": "LLM signal?", "type": "main", "index": 0}]]
+      "main": [[
+        {"node": "LLM signal?", "type": "main", "index": 0},
+        {"node": "Log LLM usage", "type": "main", "index": 0}
+      ]]
     },
     "LLM signal?": {
       "main": [
