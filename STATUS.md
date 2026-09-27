@@ -96,6 +96,34 @@ Two ways to check pipeline health, in order of simplicity:
 
 **Note**: n8n's REST API login/basic-auth didn't accept manual "run now" trigger in this version — cron will fire it automatically; if you want to force an early test, edit the cron expression to a near-future minute in the n8n UI, save, wait, then set it back to `30 8 * * *` / `0 18 * * *`.
 
+## Weekend Report → Google Sheets
+
+Script: `scripts/export_weekly_report.py` (installed at `/opt/stack/scripts/export_weekly_report.py` on VPS).
+
+Dumps every signal + its live Fyers price + slippage to CSV. Run on the VPS whenever you want a report (weekly, or any custom range):
+
+```bash
+ssh root@65.20.79.45
+cd /opt/stack
+python3 scripts/export_weekly_report.py            # last 7 days (default)
+python3 scripts/export_weekly_report.py --days 14  # last 2 weeks
+python3 scripts/export_weekly_report.py --since 2026-09-01 --until 2026-09-28
+```
+
+Writes to `/opt/stack/reports/signals_<from>_<to>.csv`. Download to your laptop:
+
+```bash
+scp root@65.20.79.45:/opt/stack/reports/signals_*.csv ~/Downloads/
+```
+
+Then in Google Sheets: **File → Import → Upload** → select the CSV → "Insert new sheet".
+
+**Columns**: `signal_id, posted_at, source_group, stock_name_raw, nse_symbol, trade_type, advisor_entry, stop_loss, targets, confidence, extractor, live_price_at_capture, slippage_pct, price_captured_at, raw_text`
+
+Verified 2026-09-28: query runs clean against live schema (0 rows currently — no real signals yet, correct CSV header produced).
+
 ## Next Action
 
-Wait for the 08:30 or 18:00 IST report to confirm the full n8n-scheduled path (cron → query → format → WhatsApp) fires as designed, not just the manually-tested pieces.
+1. Wait for the 08:30 or 18:00 IST health report to confirm the full n8n-scheduled path (cron → query → format → WhatsApp) fires as designed, not just the manually-tested pieces.
+2. Do the daily Fyers re-auth tap each morning (see above).
+3. This weekend, run `export_weekly_report.py` and import the CSV into Google Sheets to review signal history.
