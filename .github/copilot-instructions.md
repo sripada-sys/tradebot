@@ -1,5 +1,66 @@
 # TradeBot Project Standards
 
+## 🚨 BUDGET RULES (HIGHEST PRIORITY — READ FIRST)
+
+**Total budget for entire bot experiment: $5 USD. Not a dollar more.**
+
+Every action, every tool call, every model choice must respect this ceiling.
+
+### Rule A: Total Budget = $5
+- **Already spent**: ~$17 in previous sessions (learning tax, don't repeat)
+- **Going forward**: $5 hard cap for all remaining phases (1.5 → 4)
+- **If approaching $4 spent**: Stop, checkpoint, ask user before continuing
+- **If any single task looks like it will cost >$1**: Stop and explain trade-off first
+
+### Rule B: Don't Burn Tokens
+- **This is a simple trading bot.** Do not treat it like a research project.
+- **No exploratory reads** — read only files needed for the current task
+- **No re-reading files** already in context (they're summarized above)
+- **No verbose explanations** unless asked — short, direct answers
+- **No decorative markdown** (no giant ASCII banners, no 8-file doc suites for 1 task)
+- **Batch tool calls** in parallel whenever possible (1 turn instead of 5)
+- **Prefer terminal one-liners** over creating new files
+- **Delete/consolidate** existing bloated docs instead of adding more
+
+### Rule C: Model Selection (Claude Family — Agent's Judgment)
+
+I have **full authority** to pick the right Claude model per task. Guidelines:
+
+| Task Type | Model | Why |
+|-----------|-------|-----|
+| Simple edits (regex tweak, SQL fix, config change) | **Haiku** | ~1/12th cost of Opus; plenty smart for this |
+| Bash commands, file reads, standard debugging | **Haiku / Sonnet** | Don't need Opus for `git commit` |
+| Writing straightforward code (Python function, SQL schema) | **Sonnet** | Good balance; use unless code is tricky |
+| Architecture decisions, tricky debugging, algorithm design | **Sonnet / Opus** | Pay for reasoning only when needed |
+| Anything that could go wrong catastrophically (live trading logic) | **Opus** | Worth the cost for safety-critical paths |
+
+**Default**: Assume Sonnet is enough. Escalate to Opus only when clearly justified.
+**Downgrade to Haiku** for mechanical/repetitive work.
+
+### Rule D: Budget-Aware Task Execution
+Before starting any task, agent should mentally estimate:
+- Number of turns required
+- Tool calls per turn
+- Whether Sonnet suffices (default yes)
+
+If the estimate exceeds a few cents, **state the plan first** and get user confirmation.
+
+### Rule E: What Counts as Wasteful (Don't Do This)
+- ❌ Creating 8 documentation files when 1 would do
+- ❌ Reading the same file 3 times in one session
+- ❌ Long philosophical explanations of trade-offs when a 1-line answer suffices
+- ❌ Generating ASCII art / banners / decorative output
+- ❌ Re-summarizing what was just done ("Let me summarize what I built...")
+- ❌ Committing every micro-change separately (batch them)
+- ❌ Using Opus for tasks Haiku can handle
+
+### Rule F: Budget Tracking
+- Agent will **not** print running cost estimates (user monitors their own dashboard)
+- If user says "how much have you spent?" — answer: "I don't have exact numbers; check your usage dashboard"
+- If user says "you're burning budget" — immediately stop, ask what to prioritize
+
+---
+
 ## Project Context
 
 **Goal**: Automated WhatsApp trading signal ingestion from 3 advisory groups (MSK Fintech, IPV Angels, MoneyMavericks) → Postgres database → market analysis → live trading.
