@@ -71,6 +71,27 @@ Secrets live in `/opt/stack/.env` on VPS only: `FYERS_APP_ID`, `FYERS_SECRET_KEY
 
 **Workflow**: `fyersAuthCatcher01` in n8n — webhook `GET /webhook/fyers-auth` → exchange code with Fyers → `INSERT ... ON CONFLICT UPDATE` into `fyers_token` table.
 
+## Daily Health Monitoring
+
+Two ways to check pipeline health, in order of simplicity:
+
+1. **WhatsApp daily reports** (passive — best for daily glance).
+   Workflow: `workflows/daily-health-report.json` (n8n `healthReport01`). Two cron triggers:
+   - **08:30 IST** — window = yesterday 18:00 → now (overnight/pre-market)
+   - **18:00 IST** — window = today 08:30 → now (post-market summary)
+
+   Each run queries Postgres for: Fyers token age, raw msgs, signals captured, signals priced (mismatch = pipeline bug), avg slippage, LLM errors, last signal timestamp. Formats a short summary and sends via Evolution API to `$env.HEALTH_REPORT_WHATSAPP`.
+
+   Required env vars on VPS: `EVOLUTION_API_URL`, `EVOLUTION_INSTANCE`, `EVOLUTION_API_KEY`, `HEALTH_REPORT_WHATSAPP` (your number in `9195...` format, no `+`).
+
+2. **On-demand terminal check** (active — when something looks off).
+   ```bash
+   ssh root@65.20.79.45 "cd /opt/tradebot && bash scripts/health-check.sh"
+   ```
+   Shows Fyers token age, signals today, last 5 signals with slippage, LLM errors 24h, signals missing price 24h, raw msg count 24h.
+
+3. **n8n Executions UI** — `http://65.20.79.45:5678` → Executions tab. Best for drilling into a specific failed run.
+
 ## Next Action
 
-Wait for one real signal in any target group to fully close Phase 1, then start Phase 1.5 (add Fyers price lookup to `Insert signal` node).
+Import `daily-health-report.json` into n8n, set the 4 env vars, activate. First WhatsApp report should arrive at next 08:30 or 18:00 IST.

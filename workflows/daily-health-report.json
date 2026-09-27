@@ -1,0 +1,104 @@
+{
+  "id": "healthReport01",
+  "name": "Daily Health Report (AM + PM)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "30 8 * * *" }
+          ]
+        }
+      },
+      "id": "cron-morning",
+      "name": "Cron 08:30 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 18 * * *" }
+          ]
+        }
+      },
+      "id": "cron-evening",
+      "name": "Cron 18:00 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determine reporting window: 'since last report'.\n// Morning run  (08:30) -> window = previous 18:00 .. now\n// Evening run  (18:00) -> window = today 08:30 .. now\nconst now = new Date();\nconst istOffsetMs = 5.5 * 60 * 60 * 1000;\nconst istNow = new Date(now.getTime() + istOffsetMs);\nconst hourIst = istNow.getUTCHours();\n\nlet windowStart;\nlet slot;\nif (hourIst < 12) {\n  // morning report: from yesterday 18:00 IST\n  const y = new Date(istNow);\n  y.setUTCDate(y.getUTCDate() - 1);\n  y.setUTCHours(18, 0, 0, 0);\n  windowStart = new Date(y.getTime() - istOffsetMs); // back to UTC\n  slot = 'AM';\n} else {\n  // evening report: from today 08:30 IST\n  const t = new Date(istNow);\n  t.setUTCHours(8, 30, 0, 0);\n  windowStart = new Date(t.getTime() - istOffsetMs);\n  slot = 'PM';\n}\n\nreturn [{\n  json: {\n    slot,\n    window_start: windowStart.toISOString(),\n    window_end: now.toISOString(),\n    ist_date: istNow.toISOString().slice(0, 10)\n  }\n}];"
+      },
+      "id": "window",
+      "name": "Compute report window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH win AS (SELECT $1::timestamptz AS ws, $2::timestamptz AS we) SELECT (SELECT COUNT(*) FROM raw_messages WHERE posted_at BETWEEN (SELECT ws FROM win) AND (SELECT we FROM win)) AS raw_msgs, (SELECT COUNT(*) FROM signals WHERE posted_at BETWEEN (SELECT ws FROM win) AND (SELECT we FROM win)) AS signals_captured, (SELECT COUNT(*) FROM signals_market_context smc JOIN signals s ON s.id = smc.signal_id WHERE s.posted_at BETWEEN (SELECT ws FROM win) AND (SELECT we FROM win) AND smc.price_at_capture IS NOT NULL) AS signals_priced, (SELECT ROUND(AVG(smc.slippage_pct)::numeric, 2) FROM signals_market_context smc JOIN signals s ON s.id = smc.signal_id WHERE s.posted_at BETWEEN (SELECT ws FROM win) AND (SELECT we FROM win) AND smc.slippage_pct IS NOT NULL) AS avg_slippage_pct, (SELECT COUNT(*) FROM llm_usage WHERE error IS NOT NULL AND error <> '') AS llm_errors_total, (SELECT COUNT(*) FROM llm_usage WHERE error IS NOT NULL AND error <> '' AND created_at BETWEEN (SELECT ws FROM win) AND (SELECT we FROM win)) AS llm_errors_window, (SELECT updated_at FROM fyers_token WHERE id=1) AS fyers_token_updated, (SELECT MAX(posted_at) FROM signals) AS last_signal_at;",
+        "options": {
+          "queryReplacement": "={{ [$json.window_start, $json.window_end] }}"
+        }
+      },
+      "id": "query-stats",
+      "name": "Query health stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [480, 200],
+      "credentials": {
+        "postgres": { "id": "kbGArBxBujC2dxMJ", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const win = $('Compute report window').first().json;\nconst s = $json;\n\nfunction fmtAgo(iso) {\n  if (!iso) return 'never';\n  const diffMs = Date.now() - new Date(iso).getTime();\n  const m = Math.floor(diffMs / 60000);\n  if (m < 60) return `${m}m ago`;\n  const h = Math.floor(m / 60);\n  if (h < 24) return `${h}h ago`;\n  return `${Math.floor(h/24)}d ago`;\n}\n\nconst tokenAgeH = s.fyers_token_updated\n  ? (Date.now() - new Date(s.fyers_token_updated).getTime()) / 3600000\n  : 999;\nconst tokenOk = tokenAgeH < 20;\n\nconst captured = Number(s.signals_captured || 0);\nconst priced   = Number(s.signals_priced   || 0);\nconst mismatch = captured - priced;\n\nconst lines = [\n  `📊 TradeBot Health — ${win.slot} ${win.ist_date}`,\n  ``,\n  `${tokenOk ? '✅' : '❌'} Fyers token: ${s.fyers_token_updated ? fmtAgo(s.fyers_token_updated) : 'MISSING'}`,\n  `📥 Raw msgs (window): ${s.raw_msgs || 0}`,\n  `🎯 Signals captured: ${captured}`,\n  `💰 Signals priced:   ${priced}${mismatch > 0 ? ` ⚠️ ${mismatch} missing price` : ''}`,\n  `📈 Avg slippage:     ${s.avg_slippage_pct != null ? s.avg_slippage_pct + '%' : 'n/a'}`,\n  `🤖 LLM errors (win): ${s.llm_errors_window || 0}`,\n  ``,\n  `Last signal: ${fmtAgo(s.last_signal_at)}`,\n  `Window: ${win.window_start.slice(11,16)} → ${win.window_end.slice(11,16)} UTC`\n];\n\nreturn [{ json: { text: lines.join('\\n'), slot: win.slot } }];"
+      },
+      "id": "format",
+      "name": "Format report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"number\": $env.HEALTH_REPORT_WHATSAPP, \"text\": $json.text } }}",
+        "options": {}
+      },
+      "id": "send-whatsapp",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 200]
+    }
+  ],
+  "connections": {
+    "Cron 08:30 IST": { "main": [[{ "node": "Compute report window", "type": "main", "index": 0 }]] },
+    "Cron 18:00 IST": { "main": [[{ "node": "Compute report window", "type": "main", "index": 0 }]] },
+    "Compute report window": { "main": [[{ "node": "Query health stats", "type": "main", "index": 0 }]] },
+    "Query health stats": { "main": [[{ "node": "Format report", "type": "main", "index": 0 }]] },
+    "Format report": { "main": [[{ "node": "Send WhatsApp", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  }
+}
