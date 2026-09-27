@@ -1,0 +1,67 @@
+{
+  "id": "fyersAuthCatcher01",
+  "name": "Fyers Daily Auth Catcher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "fyers-auth",
+        "responseMode": "onReceived",
+        "responseData": "✅ Fyers connected for today. You can close this tab.",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Auth Redirect Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "fyers-auth"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-t1.fyers.in/api/v3/validate-authcode",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"grant_type\": \"authorization_code\", \"appIdHash\": $env.FYERS_APP_HASH, \"code\": $json.query.auth_code } }}",
+        "options": {}
+      },
+      "id": "exchange",
+      "name": "Exchange Code For Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO fyers_token (id, access_token) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, updated_at = NOW();",
+        "options": {
+          "queryReplacement": "={{ [$json.access_token] }}"
+        }
+      },
+      "id": "save-token",
+      "name": "Save Token To DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [440, 0],
+      "credentials": {
+        "postgres": { "id": "kbGArBxBujC2dxMJ", "name": "Postgres" }
+      }
+    }
+  ],
+  "connections": {
+    "Auth Redirect Webhook": { "main": [[{ "node": "Exchange Code For Token", "type": "main", "index": 0 }]] },
+    "Exchange Code For Token": { "main": [[{ "node": "Save Token To DB", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  }
+}
