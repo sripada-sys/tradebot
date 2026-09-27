@@ -48,14 +48,16 @@ ssh root@65.20.79.45 "docker exec stack-postgres psql -U stackadmin -d n8n -c 'S
 
 ## Fyers Daily Re-Auth (SEBI restriction — no automated refresh)
 
-SEBI disabled the `refresh_token` API for retail apps. `access_token` expires ~24h and must be renewed manually once/day (~1 min):
+SEBI disabled the `refresh_token` API for retail apps. `access_token` expires ~24h and must be renewed once/day. **Mobile-friendly — one tap, no laptop needed:**
 
-1. Open this URL in your Fyers-logged-in browser:
+1. On any phone logged into Fyers, open this bookmark:
    `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=E6XKAQNPSE-100&redirect_uri=https://65.20.79.45:5678/webhook/fyers-auth&response_type=code&state=tradebot`
-2. Click authorize → it redirects with `auth_code=...` in the URL (page may show connection error — that's fine, just copy the URL).
-3. Paste the full redirected URL back to the agent → it exchanges the code for a new `access_token` and saves to `.env` on VPS.
+2. Tap authorize. Fyers redirects to our n8n webhook (`fyers-auth-catcher` workflow), which **automatically** exchanges the code and saves the new token to the `fyers_token` DB table. No copy-paste needed.
+3. Page shows "Workflow was started" — done. Token is live for other workflows to use (query `SELECT access_token FROM fyers_token WHERE id=1`).
 
-Secrets live in `/opt/stack/.env` on VPS only: `FYERS_APP_ID`, `FYERS_SECRET_KEY`, `FYERS_ACCESS_TOKEN`, `FYERS_REFRESH_TOKEN` (unused due to SEBI block), `FYERS_PIN`.
+Secrets live in `/opt/stack/.env` on VPS only: `FYERS_APP_ID`, `FYERS_SECRET_KEY`, `FYERS_APP_HASH` (precomputed sha256, used by n8n), `FYERS_ACCESS_TOKEN` (legacy, superseded by DB table), `FYERS_REFRESH_TOKEN` (unused — SEBI block), `FYERS_PIN`.
+
+**Workflow**: `fyersAuthCatcher01` in n8n — webhook `GET /webhook/fyers-auth` → exchange code with Fyers → `INSERT ... ON CONFLICT UPDATE` into `fyers_token` table.
 
 ## Next Action
 
