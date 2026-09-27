@@ -13,6 +13,7 @@
 | Webhook `messages.upsert` + `messages.update` → n8n | ✅ Firing |
 | n8n workflow `bf7e41466a2cfac1` (v2, 17 nodes) | ✅ Active |
 | DB schemas v1+v2+v3 | ✅ Applied |
+| Fyers API (App ID `E6XKAQNPSE-100`) | ✅ Working — quotes tested live |
 
 ## Phase Status
 
@@ -44,6 +45,17 @@ ssh root@65.20.79.45 "docker exec stack-postgres psql -U stackadmin -d n8n -c 'S
 
 - `raw_messages` is empty → **by design**. Filter runs before Log node; non-target groups and non-text messages (reactions, receipts) are dropped upstream. If we want raw audit later, move Log before Filter.
 - v2 workflow has 17 nodes — more than the 3 rules would suggest. Not simplifying yet; will revisit if it causes real pain.
+
+## Fyers Daily Re-Auth (SEBI restriction — no automated refresh)
+
+SEBI disabled the `refresh_token` API for retail apps. `access_token` expires ~24h and must be renewed manually once/day (~1 min):
+
+1. Open this URL in your Fyers-logged-in browser:
+   `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=E6XKAQNPSE-100&redirect_uri=https://65.20.79.45:5678/webhook/fyers-auth&response_type=code&state=tradebot`
+2. Click authorize → it redirects with `auth_code=...` in the URL (page may show connection error — that's fine, just copy the URL).
+3. Paste the full redirected URL back to the agent → it exchanges the code for a new `access_token` and saves to `.env` on VPS.
+
+Secrets live in `/opt/stack/.env` on VPS only: `FYERS_APP_ID`, `FYERS_SECRET_KEY`, `FYERS_ACCESS_TOKEN`, `FYERS_REFRESH_TOKEN` (unused due to SEBI block), `FYERS_PIN`.
 
 ## Next Action
 
