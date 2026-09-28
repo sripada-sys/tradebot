@@ -92,9 +92,7 @@ Two ways to check pipeline health, in order of simplicity:
 
 3. **n8n Executions UI** — `http://65.20.79.45:5678` → Executions tab. Best for drilling into a specific failed run.
 
-**Deployed 2026-09-28**: `healthReport01` imported into n8n via CLI, activated in DB, `stack-n8n` restarted. Env vars added to `/opt/stack/.env`: `EVOLUTION_API_URL=http://evolution:8080`, `EVOLUTION_INSTANCE=msk-bot`, `HEALTH_REPORT_WHATSAPP=919500029155` (`EVOLUTION_API_KEY` already existed). Verified both moving parts independently: (1) reporting SQL query runs clean against live schema, (2) Evolution API `sendText` call delivers to WhatsApp — test message received. First real scheduled report fires at next 08:30 or 18:00 IST.
-
-**Note**: n8n's REST API login/basic-auth didn't accept manual "run now" trigger in this version — cron will fire it automatically; if you want to force an early test, edit the cron expression to a near-future minute in the n8n UI, save, wait, then set it back to `30 8 * * *` / `0 18 * * *`.
+**Deployed and verified 2026-09-28**: `healthReport01` is active and published in n8n. The initial direct DB activation did not publish/register its schedule; publish with `n8n publish:workflow --id=healthReport01` and restart n8n. The n8n Compose service must map `EVOLUTION_API_URL`, `EVOLUTION_INSTANCE`, and `HEALTH_REPORT_WHATSAPP` from `/opt/stack/.env` into the container. Report SQL uses `llm_usage.called_at`. Verified the report SQL against the live schema, confirmed all required variables are present in the running container, and sent a one-time WhatsApp status notice. The 08:30 report was missed during the fix; the next scheduled report is 18:00 IST.
 
 ## Weekend Report → Google Sheets
 
