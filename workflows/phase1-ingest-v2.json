@@ -100,7 +100,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "// COST-CONTROLLED EXTRACTOR: regex first, cheap filters before LLM\nconst PATTERNS = [\n  /(?:(?<trade_type>POSITIONAL\\s+TRADE|INTRADAY\\s+TRADE|BTST\\s+TRADE|SWING\\s+TRADE)\\s*[\\r\\n]+)?\\s*(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+\\s*Looks\\s+Good\\s+ABOVE\\s+(?<entry>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*SL\\s+(?<sl>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*Targets?\\s+(?<targets>[\\d.\\-+\\s]+?)(?<points>\\s*points?\\s+from\\s+entry)?(?:\\s*[\\r\\n]|$)/is,\n  /(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+.*?(?:Buy|BUY|buy)\\s*(?:above|@|at)?\\s*(?<entry>\\d+(?:\\.\\d+)?).*?(?:SL|Stop\\s*Loss|stoploss)[:\\s]*(?<sl>\\d+(?:\\.\\d+)?).*?(?:Target|TGT|Tgt|target)s?[:\\s]*(?<targets>[\\d.\\s,+\\-]+)/is\n];\n\n// Skip patterns (never send to LLM - saves cost)\nconst SKIP_RE = /\ud83d\udd25|target\\s+hit|booked|profit\\s+booked|good\\s+morning|good\\s+night|thank|congrat|welcome|\ud83d\udc4d|\ud83d\ude00|\ud83d\ude02|\u2764\ufe0f|\ud83d\ude4f/i;\nconst PNL_RE  = /\\+\\d+%|\\-\\d+%|profit\\s+of|loss\\s+of|return\\s+of/i;\nconst LINK_RE = /^https?:\\/\\/|youtube\\.com|youtu\\.be|t\\.me/i;\n\n// Signal-likely heuristic: message must have BOTH a number AND a signal keyword\nconst NUMBER_RE  = /\\d+/;\nconst KEYWORD_RE = /(?:buy|sell|target|sl|stoploss|stop\\s*loss|tgt|entry|above|below|positional|intraday|swing|btst)/i;\n\nconst MAX_LEN_FOR_LLM = 2000;\n\nconst input = $input.first().json;\nconst body  = (input.body || '').toString();\nconst len   = body.length;\n\n// Try regex first (0 cost)\nfor (const re of PATTERNS) {\n  const m = body.match(re);\n  if (!m || !m.groups) continue;\n  const g = m.groups;\n  const entry = parseFloat(g.entry);\n  const sl    = parseFloat(g.sl);\n  if (isNaN(entry) || isNaN(sl)) continue;\n  const rawTargets = (g.targets || '').replace(/[+,\\s]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').split('-').filter(Boolean);\n  let targets = rawTargets.map(Number).filter(n => !isNaN(n));\n  const mode = g.points ? 'points_from_entry' : 'absolute';\n  if (mode === 'points_from_entry') targets = targets.map(t => Number((entry + t).toFixed(2)));\n  return [{\n    json: {\n      ...input,\n      trade_type:     (g.trade_type || '').toUpperCase().trim() || null,\n      stock_name_raw: g.stock.replace(/\\s+/g,' ').trim(),\n      entry_price:    entry,\n      stop_loss:      sl,\n      targets,\n      targets_mode:   mode,\n      extractor:      'regex',\n      confidence:     0.9,\n      extractor_result: 'ok'\n    }\n  }];\n}\n\n// Regex missed - decide whether to spend LLM $\nconst llmEnabled = ($env.LLM_ENABLED || 'true').toLowerCase() !== 'false';\nlet skipReason = null;\nif (!llmEnabled)                skipReason = 'llm_disabled';\nelse if (len > MAX_LEN_FOR_LLM) skipReason = 'too_long';\nelse if (len < 20)              skipReason = 'too_short';\nelse if (SKIP_RE.test(body))    skipReason = 'skip_pattern';\nelse if (PNL_RE.test(body))     skipReason = 'pnl_update';\nelse if (LINK_RE.test(body))    skipReason = 'link_only';\nelse if (!NUMBER_RE.test(body)) skipReason = 'no_number';\nelse if (!KEYWORD_RE.test(body))skipReason = 'no_keyword';\n\nif (skipReason) {\n  return [{ json: { ...input, extractor_result: 'skipped_' + skipReason } }];\n}\n\nreturn [{ json: { ...input, extractor_result: 'regex_miss' } }];"
+        "jsCode": "// COST-CONTROLLED EXTRACTOR: regex first, cheap filters before LLM\nconst PATTERNS = [\n  /(?:(?<trade_type>POSITIONAL\\s+TRADE|INTRADAY\\s+TRADE|BTST\\s+TRADE|SWING\\s+TRADE)\\s*[\\r\\n]+)?\\s*(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+\\s*Looks\\s+Good\\s+ABOVE\\s+(?<entry>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*SL\\s+(?<sl>\\d+(?:\\.\\d+)?)\\s*[\\r\\n]+\\s*Targets?\\s+(?<targets>[\\d.\\-+\\s]+?)(?<points>\\s*points?\\s+from\\s+entry)?(?:\\s*[\\r\\n]|$)/is,\n  /(?<stock>[A-Z][A-Z0-9&.\\- ]{1,40}?)\\s*[\\r\\n]+.*?(?:Buy|BUY|buy)\\s*(?:above|@|at)?\\s*(?<entry>\\d+(?:\\.\\d+)?).*?(?:SL|Stop\\s*Loss|stoploss)[:\\s]*(?<sl>\\d+(?:\\.\\d+)?).*?(?:Target|TGT|Tgt|target)s?[:\\s]*(?<targets>[\\d.\\s,+\\-]+)/is\n];\n\n// Skip patterns (never send to LLM - saves cost)\nconst SKIP_RE = /🔥|target\\s+hit|booked|profit\\s+booked|good\\s+morning|good\\s+night|thank|congrat|welcome|👍|😀|😂|❤️|🙏/i;\nconst PNL_RE  = /\\+\\d+%|\\-\\d+%|profit\\s+of|loss\\s+of|return\\s+of/i;\nconst LINK_RE = /^https?:\\/\\/|youtube\\.com|youtu\\.be|t\\.me/i;\n\n// Signal-likely heuristic: message must have BOTH a number AND a signal keyword\nconst NUMBER_RE  = /\\d+/;\nconst KEYWORD_RE = /(?:buy|sell|target|sl|stoploss|stop\\s*loss|tgt|entry|above|below|positional|intraday|swing|btst)/i;\n\nconst MAX_LEN_FOR_LLM = 2000;\n\nconst input = $input.first().json;\nconst body  = (input.body || '').toString();\nconst len   = body.length;\n\n// Try regex first (0 cost)\nfor (const re of PATTERNS) {\n  const m = body.match(re);\n  if (!m || !m.groups) continue;\n  const g = m.groups;\n  const entry = parseFloat(g.entry);\n  const sl    = parseFloat(g.sl);\n  if (isNaN(entry) || isNaN(sl)) continue;\n  const rawTargets = (g.targets || '').replace(/[+,\\s]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').split('-').filter(Boolean);\n  let targets = rawTargets.map(Number).filter(n => !isNaN(n));\n  const mode = g.points ? 'points_from_entry' : 'absolute';\n  if (mode === 'points_from_entry') targets = targets.map(t => Number((entry + t).toFixed(2)));\n  return [{\n    json: {\n      ...input,\n      trade_type:     (g.trade_type || '').toUpperCase().trim() || null,\n      stock_name_raw: g.stock.replace(/\\s+/g,' ').trim(),\n      entry_price:    entry,\n      stop_loss:      sl,\n      targets,\n      targets_mode:   mode,\n      extractor:      'regex',\n      confidence:     0.9,\n      extractor_result: 'ok'\n    }\n  }];\n}\n\n// Regex missed - decide whether to spend LLM $\nconst llmEnabled = ($env.LLM_ENABLED || 'true').toLowerCase() !== 'false';\nlet skipReason = null;\nif (!llmEnabled)                skipReason = 'llm_disabled';\nelse if (len > MAX_LEN_FOR_LLM) skipReason = 'too_long';\nelse if (len < 20)              skipReason = 'too_short';\nelse if (SKIP_RE.test(body))    skipReason = 'skip_pattern';\nelse if (PNL_RE.test(body))     skipReason = 'pnl_update';\nelse if (LINK_RE.test(body))    skipReason = 'link_only';\nelse if (!NUMBER_RE.test(body)) skipReason = 'no_number';\nelse if (!KEYWORD_RE.test(body))skipReason = 'no_keyword';\n\nif (skipReason) {\n  return [{ json: { ...input, extractor_result: 'skipped_' + skipReason } }];\n}\n\nreturn [{ json: { ...input, extractor_result: 'regex_miss' } }];"
       }
     },
     {
@@ -365,7 +365,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const s = $input.first().json;\nif (!s || !s.id) return [];\n\nconst targetsArr = ($('Merge symbol back').first().json.targets || []);\nconst symbol   = s.nse_symbol || s.stock_name_raw || 'UNKNOWN';\nconst extractor = (s.extractor || '').toUpperCase();\nconst conf     = s.confidence ? Number(s.confidence).toFixed(2) : 'n/a';\n\nconst lines = [\n  '\ud83d\udea8 *Signal captured*',\n  `Source: ${s.source_group}`,\n  `Stock:  ${symbol}`,\n  `Entry:  \u20b9${s.entry_price}`,\n  `SL:     \u20b9${s.stop_loss}`,\n  `Tgts:   ${targetsArr.length ? targetsArr.join(', ') : '\u2014'}`,\n  `Src:    ${extractor} (conf ${conf})`\n];\nif (!s.nse_symbol) lines.push('\u26a0\ufe0f  Symbol not resolved \u2014 manual review');\n\nreturn [{ json: { alert_text: lines.join('\\n'), signal_id: s.id } }];"
+        "jsCode": "const s = $input.first().json;\nif (!s || !s.id) return [];\n\nconst targetsArr = ($('Merge symbol back').first().json.targets || []);\nconst symbol   = s.nse_symbol || s.stock_name_raw || 'UNKNOWN';\nconst extractor = (s.extractor || '').toUpperCase();\nconst conf     = s.confidence ? Number(s.confidence).toFixed(2) : 'n/a';\n\nconst lines = [\n  '🚨 *Signal captured*',\n  `Source: ${s.source_group}`,\n  `Stock:  ${symbol}`,\n  `Entry:  ₹${s.entry_price}`,\n  `SL:     ₹${s.stop_loss}`,\n  `Tgts:   ${targetsArr.length ? targetsArr.join(', ') : '—'}`,\n  `Src:    ${extractor} (conf ${conf})`\n];\nif (!s.nse_symbol) lines.push('⚠️  Symbol not resolved — manual review');\n\nreturn [{ json: { alert_text: lines.join('\\n'), signal_id: s.id } }];"
       }
     },
     {
@@ -470,76 +470,27 @@
       }
     },
     {
-      "id": "fetch-option-chain",
-      "name": "Fetch Fyers option chain",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "onError": "continueRegularOutput",
+      "id": "launch-options-sidecar",
+      "name": "Launch options context (async)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
       "position": [
         3080,
         900
       ],
+      "onError": "continueRegularOutput",
       "parameters": {
-        "method": "GET",
-        "url": "=https://api-t1.fyers.in/data/options-chain-v3?symbol=NSE:{{ $('Insert signal').item.json.nse_symbol }}-EQ&strikecount=5&timestamp=",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ $env.FYERS_APP_ID }}:{{ $json.access_token }}"
-            }
-          ]
+        "operation": "call_workflow",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "optionsAnalysis01",
+          "mode": "list",
+          "cachedResultName": "Fyers Options Context (Sidecar)"
         },
+        "mode": "once",
         "options": {
-          "timeout": 15000
-        }
-      }
-    },
-    {
-      "id": "format-option-chain",
-      "name": "Format options context",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3300,
-        900
-      ],
-      "parameters": {
-        "language": "javaScript",
-        "jsCode": "const response = $input.first().json || {};\nconst data = response.data || {};\nconst chain = Array.isArray(data.optionsChain) ? data.optionsChain : [];\nconst contracts = chain.filter(option => ['CE', 'PE'].includes(option.option_type) && Number(option.oi) > 0);\nif (response.s !== 'ok' || contracts.length === 0) return [];\n\nconst calls = contracts.filter(option => option.option_type === 'CE');\nconst puts = contracts.filter(option => option.option_type === 'PE');\nconst maxOiStrike = options => options.reduce((best, option) => Number(option.oi) > Number(best.oi) ? option : best, options[0]);\nconst callMax = calls.length ? maxOiStrike(calls) : null;\nconst putMax = puts.length ? maxOiStrike(puts) : null;\nconst callOi = Number(data.callOi || 0);\nconst putOi = Number(data.putOi || 0);\nconst pcr = callOi > 0 ? (putOi / callOi).toFixed(2) : 'n/a';\nconst expiries = Array.isArray(data.expiryData) ? data.expiryData.filter(item => Number(item.expiry) * 1000 >= Date.now()).sort((a, b) => Number(a.expiry) - Number(b.expiry)) : [];\nconst expiry = expiries[0] ? expiries[0].date : 'not provided';\nconst spot = chain.find(option => option.option_type === '' && Number(option.strike_price) === -1 && option.ltp != null);\nconst signal = $('Insert signal').item.json;\nconst capturedAt = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }).format(new Date());\nconst tilt = putOi > callOi ? 'Put OI is higher than Call OI' : putOi < callOi ? 'Call OI is higher than Put OI' : 'Call and Put OI are balanced';\n\nconst lines = [\n  `📊 Options snapshot: ${signal.stock_name_raw || signal.nse_symbol}`,\n  `Ticker: ${signal.nse_symbol} | Expiry: ${expiry}`,\n  `Underlying LTP: ${spot ? '₹' + spot.ltp : 'not returned'} | Signal trigger: ₹${signal.entry_price}`,\n  `Aggregate OI: Calls ${callOi.toLocaleString('en-IN')} | Puts ${putOi.toLocaleString('en-IN')} | Put/Call ratio ${pcr}`,\n  `Highest Call OI in returned strikes: ${callMax ? '₹' + callMax.strike_price : 'n/a'} | Highest Put OI: ${putMax ? '₹' + putMax.strike_price : 'n/a'}`,\n  `${tilt}; this is positioning context, not a buy/sell recommendation.`,\n  `Fetched: ${capturedAt} IST`\n];\nreturn [{ json: { options_text: lines.join('\\n') } }];"
-      }
-    },
-    {
-      "id": "send-option-chain",
-      "name": "Send options context",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        3520,
-        900
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "http://evolution:8080/message/sendText/msk-bot",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "apikey",
-              "value": "={{ $env.EVOLUTION_API_KEY }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"number\": \"919500029155\",\n  \"text\": {{ JSON.stringify($json.options_text) }}\n}",
-        "options": {
-          "timeout": 10000
+          "waitForSubWorkflow": false
         }
       }
     }
@@ -713,6 +664,11 @@
             "node": "Get Fyers token",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Launch options context (async)",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -735,11 +691,6 @@
             "node": "Fetch Fyers price",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Fetch Fyers option chain",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -749,28 +700,6 @@
         [
           {
             "node": "Update market context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Fyers option chain": {
-      "main": [
-        [
-          {
-            "node": "Format options context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format options context": {
-      "main": [
-        [
-          {
-            "node": "Send options context",
             "type": "main",
             "index": 0
           }

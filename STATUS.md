@@ -106,7 +106,7 @@ Dry-run the five observed names with `python3 scripts/sync_fyers_symbol_master.p
 
 ## Options Context Message
 
-For uniquely resolved tickers, the ingest workflow makes a separate Fyers v3 options-chain request. If contracts are returned, it sends a second WhatsApp note with nearest expiry, underlying LTP, aggregate call/put OI and PCR, and highest call/put OI strikes in the returned window. The note is informational only; it does not gate or place trades. If Fyers returns no contracts or an API error, the normal signal/price path continues and no options note is sent. No LLM is used.
+For uniquely resolved tickers, the ingest workflow asynchronously launches the private subworkflow `optionsAnalysis01` (`workflows/fyers-options-context.json`) and does not wait for it. The sidecar makes a Fyers v3 options-chain request. If contracts are returned, it sends a second WhatsApp note with nearest expiry, underlying LTP, aggregate call/put OI and PCR, and highest call/put OI strikes in the returned window. The note is informational only; it does not gate or place trades. If Fyers returns no contracts or an API error, the sidecar skips the note and the normal signal/price path is unaffected. No LLM is used.
 
 Verified 2026-09-29: `/data/options-chain-v3` returned a valid RELIANCE chain (expiry list, `callOi`, `putOi`, `optionsChain` with per-strike OI/volume/bid/ask/LTP). AZAD returned no expiry contracts, which is handled as no options note.
 
