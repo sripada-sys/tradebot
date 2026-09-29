@@ -1,6 +1,6 @@
 # TradeBot Status
 
-**Last updated**: 2026-09-27
+**Last updated**: 2026-09-29
 **Budget spent**: ~$17 (pre-standards). Remaining cap: $5 for Phases 1.5 → 4.
 
 ## What's Live
@@ -21,6 +21,7 @@
 - **Phase 1** (signal capture) — ✅ pipeline verified end-to-end with simulated real signal (webhook → filter → regex → insert). Real advisor signal still pending (waiting on live market chatter).
 - **Phase 1.5** (Fyers price + slippage) — ✅ done. Signal insert now triggers live Fyers price lookup + auto slippage calc, verified: RELIANCE @1200 advisor entry vs 1226 live price = +2.167% slippage.
 - **Phase 2/3/4** — pending
+- **Future signal-context enrichment (not implemented)** — evaluate market direction, sector direction, Fyers option-chain positioning, and recent company news alongside each signal. Start as context-only information for review; do not gate trades on these factors until their sources, validation, and budget are agreed. Keep the current live flow unchanged meanwhile.
 
 ## Target Groups (hardcoded in workflow)
 
