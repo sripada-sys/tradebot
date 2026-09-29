@@ -468,6 +468,80 @@
           "queryReplacement": "={{ [$json.d[0].v.lp, $('Insert signal').item.json.entry_price, $('Insert signal').item.json.id] }}"
         }
       }
+    },
+    {
+      "id": "fetch-option-chain",
+      "name": "Fetch Fyers option chain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        3080,
+        900
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api-t1.fyers.in/data/options-chain-v3?symbol=NSE:{{ $('Insert signal').item.json.nse_symbol }}-EQ&strikecount=5&timestamp=",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.FYERS_APP_ID }}:{{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "format-option-chain",
+      "name": "Format options context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        900
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const response = $input.first().json || {};\nconst data = response.data || {};\nconst chain = Array.isArray(data.optionsChain) ? data.optionsChain : [];\nconst contracts = chain.filter(option => ['CE', 'PE'].includes(option.option_type) && Number(option.oi) > 0);\nif (response.s !== 'ok' || contracts.length === 0) return [];\n\nconst calls = contracts.filter(option => option.option_type === 'CE');\nconst puts = contracts.filter(option => option.option_type === 'PE');\nconst maxOiStrike = options => options.reduce((best, option) => Number(option.oi) > Number(best.oi) ? option : best, options[0]);\nconst callMax = calls.length ? maxOiStrike(calls) : null;\nconst putMax = puts.length ? maxOiStrike(puts) : null;\nconst callOi = Number(data.callOi || 0);\nconst putOi = Number(data.putOi || 0);\nconst pcr = callOi > 0 ? (putOi / callOi).toFixed(2) : 'n/a';\nconst expiries = Array.isArray(data.expiryData) ? data.expiryData.filter(item => Number(item.expiry) * 1000 >= Date.now()).sort((a, b) => Number(a.expiry) - Number(b.expiry)) : [];\nconst expiry = expiries[0] ? expiries[0].date : 'not provided';\nconst spot = chain.find(option => option.option_type === '' && Number(option.strike_price) === -1 && option.ltp != null);\nconst signal = $('Insert signal').item.json;\nconst capturedAt = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }).format(new Date());\nconst tilt = putOi > callOi ? 'Put OI is higher than Call OI' : putOi < callOi ? 'Call OI is higher than Put OI' : 'Call and Put OI are balanced';\n\nconst lines = [\n  `📊 Options snapshot: ${signal.stock_name_raw || signal.nse_symbol}`,\n  `Ticker: ${signal.nse_symbol} | Expiry: ${expiry}`,\n  `Underlying LTP: ${spot ? '₹' + spot.ltp : 'not returned'} | Signal trigger: ₹${signal.entry_price}`,\n  `Aggregate OI: Calls ${callOi.toLocaleString('en-IN')} | Puts ${putOi.toLocaleString('en-IN')} | Put/Call ratio ${pcr}`,\n  `Highest Call OI in returned strikes: ${callMax ? '₹' + callMax.strike_price : 'n/a'} | Highest Put OI: ${putMax ? '₹' + putMax.strike_price : 'n/a'}`,\n  `${tilt}; this is positioning context, not a buy/sell recommendation.`,\n  `Fetched: ${capturedAt} IST`\n];\nreturn [{ json: { options_text: lines.join('\\n') } }];"
+      }
+    },
+    {
+      "id": "send-option-chain",
+      "name": "Send options context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3520,
+        900
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution:8080/message/sendText/msk-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"919500029155\",\n  \"text\": {{ JSON.stringify($json.options_text) }}\n}",
+        "options": {
+          "timeout": 10000
+        }
+      }
     }
   ],
   "connections": {
@@ -661,6 +735,11 @@
             "node": "Fetch Fyers price",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Fetch Fyers option chain",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -670,6 +749,28 @@
         [
           {
             "node": "Update market context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Fyers option chain": {
+      "main": [
+        [
+          {
+            "node": "Format options context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format options context": {
+      "main": [
+        [
+          {
+            "node": "Send options context",
             "type": "main",
             "index": 0
           }

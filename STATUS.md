@@ -104,6 +104,12 @@ Dry-run the five observed names with `python3 scripts/sync_fyers_symbol_master.p
 
 **Deployed 2026-09-29**: master loaded (2,678 EQ symbols), root cron installed at 06:00 IST, and the ingest workflow is active/published with the new resolver and quote guard. Verified the WhatsApp webhook returns HTTP 200 after restart; no test message was persisted.
 
+## Options Context Message
+
+For uniquely resolved tickers, the ingest workflow makes a separate Fyers v3 options-chain request. If contracts are returned, it sends a second WhatsApp note with nearest expiry, underlying LTP, aggregate call/put OI and PCR, and highest call/put OI strikes in the returned window. The note is informational only; it does not gate or place trades. If Fyers returns no contracts or an API error, the normal signal/price path continues and no options note is sent. No LLM is used.
+
+Verified 2026-09-29: `/data/options-chain-v3` returned a valid RELIANCE chain (expiry list, `callOi`, `putOi`, `optionsChain` with per-strike OI/volume/bid/ask/LTP). AZAD returned no expiry contracts, which is handled as no options note.
+
 ## Weekend Report → Google Sheets
 
 Script: `scripts/export_weekly_report.py` (installed at `/opt/stack/scripts/export_weekly_report.py` on VPS).
