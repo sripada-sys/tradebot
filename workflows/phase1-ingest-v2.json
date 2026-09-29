@@ -274,7 +274,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nse_symbol FROM symbols WHERE UPPER(stock_name_raw) = UPPER($1) LIMIT 1",
+        "query": "WITH requested AS (SELECT REGEXP_REPLACE(UPPER(COALESCE($1, '')), '[^A-Z0-9]', '', 'g') AS company_key), matches AS (SELECT DISTINCT f.nse_symbol, CASE WHEN REGEXP_REPLACE(UPPER(f.company_name), '[^A-Z0-9]', '', 'g') = r.company_key THEN 0 ELSE 1 END AS priority FROM fyers_nse_symbols f CROSS JOIN requested r WHERE LENGTH(r.company_key) >= 4 AND (REGEXP_REPLACE(UPPER(f.company_name), '[^A-Z0-9]', '', 'g') = r.company_key OR REGEXP_REPLACE(UPPER(f.company_name), '[^A-Z0-9]', '', 'g') LIKE r.company_key || '%')), best AS (SELECT nse_symbol FROM matches WHERE priority = (SELECT MIN(priority) FROM matches)) SELECT CASE WHEN COUNT(*) = 1 THEN MIN(nse_symbol) ELSE NULL END AS nse_symbol, CASE WHEN COUNT(*) = 1 THEN 'resolved' WHEN COUNT(*) > 1 THEN 'ambiguous' ELSE 'unresolved' END AS symbol_resolution FROM best",
         "options": {
           "queryReplacement": "={{ [$json.stock_name_raw] }}"
         }
@@ -291,7 +291,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const idx  = $itemIndex;\nconst prev = $('Merge regex+LLM').all()[idx].json;\nconst sym  = $input.all()[idx] ? $input.all()[idx].json : {};\nreturn [{ json: { ...prev, nse_symbol: sym.nse_symbol || null } }];"
+        "jsCode": "const idx  = $itemIndex;\nconst prev = $('Merge regex+LLM').all()[idx].json;\nconst sym  = $input.all()[idx] ? $input.all()[idx].json : {};\nreturn [{ json: { ...prev, nse_symbol: sym.nse_symbol || null, symbol_resolution: sym.symbol_resolution || 'unresolved' } }];"
       }
     },
     {
@@ -315,6 +315,20 @@
         "options": {
           "queryReplacement": "={{ [$json.source_group, $json.group_jid, $json.message_id, $json.sender_jid, $json.body, $json.trade_type, $json.stock_name_raw, $json.nse_symbol, $json.entry_price, $json.stop_loss, '{' + ($json.targets || []).join(',') + '}', $json.targets_mode, $json.extractor, $json.confidence, $json.posted_at, $json.received_at, $json.llm_raw || null, $json.llm_model || null, $json.media_url || null, $json.is_edit === true] }}"
         }
+      }
+    },
+    {
+      "id": "guard-fyers-symbol",
+      "name": "Has Fyers ticker?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const signal = $input.first().json;\nif (!signal || !signal.nse_symbol) return [];\nreturn [{ json: signal }];"
       }
     },
     {
@@ -610,6 +624,17 @@
             "type": "main",
             "index": 0
           },
+          {
+            "node": "Has Fyers ticker?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Fyers ticker?": {
+      "main": [
+        [
           {
             "node": "Get Fyers token",
             "type": "main",

@@ -94,6 +94,16 @@ Two ways to check pipeline health, in order of simplicity:
 
 **Deployed and verified 2026-09-28**: `healthReport01` is active and published in n8n. The initial direct DB activation did not publish/register its schedule; publish with `n8n publish:workflow --id=healthReport01` and restart n8n. The n8n Compose service must map `EVOLUTION_API_URL`, `EVOLUTION_INSTANCE`, and `HEALTH_REPORT_WHATSAPP` from `/opt/stack/.env` into the container. Report SQL uses `llm_usage.called_at`. Verified the report SQL against the live schema, confirmed all required variables are present in the running container, and sent a one-time WhatsApp status notice. The 08:30 report was missed during the fix; the next scheduled report is 18:00 IST.
 
+## Automatic Fyers Symbol Resolution
+
+`scripts/sync_fyers_symbol_master.py` downloads Fyers' NSE cash `-EQ` instrument master and atomically refreshes `fyers_nse_symbols`. It runs daily at **06:00 IST** on the VPS (`/opt/stack/scripts/sync_fyers_symbol_master.py`); the source schema is `infra/stack/pg-init/05-fyers-symbol-master.sql`.
+
+The signal workflow resolves a company name only when its normalized exact/prefix match maps to one ticker. It always saves the parsed signal: unresolved or ambiguous names keep `nse_symbol` null, are flagged in the existing WhatsApp capture alert, and skip the Fyers quote branch. No LLM or manual mapping is used for ticker selection.
+
+Dry-run the five observed names with `python3 scripts/sync_fyers_symbol_master.py --check-only`. Verified against the 2026-09-29 master: PRASOL CHEM → `PRASOLCHEM`, MANIPAL PAYMENT → `MPIMANIPAL`, CHENNAI PETRO → `CHENNPETRO`, HERO MOTORS → `HEROMOTORS`; AZAD remains ambiguous (`AZAD` / `AZADIND`) and therefore will not be quoted or traded.
+
+**Deployed 2026-09-29**: master loaded (2,678 EQ symbols), root cron installed at 06:00 IST, and the ingest workflow is active/published with the new resolver and quote guard. Verified the WhatsApp webhook returns HTTP 200 after restart; no test message was persisted.
+
 ## Weekend Report → Google Sheets
 
 Script: `scripts/export_weekly_report.py` (installed at `/opt/stack/scripts/export_weekly_report.py` on VPS).
