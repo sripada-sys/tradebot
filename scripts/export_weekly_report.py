@@ -91,7 +91,8 @@ def main() -> int:
         print(result.stderr.decode(), file=sys.stderr)
         return 1
 
-    row_count = sum(1 for _ in open(out_path)) - 1  # minus header
+    with open(out_path, newline="", encoding="utf-8-sig") as csv_file:
+        row_count = max(0, sum(1 for _ in csv.reader(csv_file)) - 1)  # minus header
     print(f"✅ Wrote {row_count} signal rows to {out_path}", file=sys.stderr)
     print(f"\nDownload it to your laptop with:", file=sys.stderr)
     print(f"  scp root@65.20.79.45:{os.path.abspath(out_path)} ~/Downloads/", file=sys.stderr)
