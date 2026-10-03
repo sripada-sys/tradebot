@@ -105,6 +105,8 @@ Dry-run the five observed names with `python3 scripts/sync_fyers_symbol_master.p
 
 **Deployed 2026-09-29**: master loaded (2,678 EQ symbols), root cron installed at 06:00 IST, and the ingest workflow is active/published with the new resolver and quote guard. Verified the WhatsApp webhook returns HTTP 200 after restart; no test message was persisted.
 
+**Price-capture reliability update (2026-10-04)**: signal insertion now seeds its market-context row before the ticker/quote branch runs, preventing a quote update from racing ahead of its row. Fyers requests retry up to 3 times (1.5 seconds between retries). Responses are checked for a successful status and positive LTP; a missing token or failed/invalid quote marks context `unavailable` and sends a WhatsApp warning while keeping the signal saved. The daily health report now breaks missing prices into unresolved tickers, resolved-but-unpriced, and explicitly unavailable quotes. Validated without synthetic signals and deployed; webhook smoke test returned HTTP 200.
+
 ## Options Context Message
 
 For uniquely resolved tickers, the ingest workflow asynchronously launches the private subworkflow `optionsAnalysis01` (`workflows/fyers-options-context.json`) and does not wait for it. The sidecar makes a Fyers v3 options-chain request. If contracts are returned, it sends a second WhatsApp note with nearest expiry, underlying LTP, aggregate call/put OI and PCR, and highest call/put OI strikes in the returned window. The note is informational only; it does not gate or place trades. If Fyers returns no contracts or an API error, the sidecar skips the note and the normal signal/price path is unaffected. No LLM is used.

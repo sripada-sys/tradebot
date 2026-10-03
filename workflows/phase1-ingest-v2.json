@@ -348,9 +348,9 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO signals_market_context(signal_id, nse_symbol, advisor_entry, source) SELECT $1::bigint, $2, $3::numeric, 'pending' WHERE $1 IS NOT NULL",
+        "query": "WITH seeded AS (INSERT INTO signals_market_context(signal_id, nse_symbol, advisor_entry, source) SELECT id, nse_symbol, entry_price, 'pending' FROM signals WHERE id=$1 RETURNING signal_id) SELECT s.* FROM signals s JOIN seeded ON seeded.signal_id=s.id",
         "options": {
-          "queryReplacement": "={{ [$json.id || null, $json.nse_symbol, $json.entry_price] }}"
+          "queryReplacement": "={{ [$json.id || null] }}"
         }
       }
     },
@@ -406,6 +406,7 @@
       "name": "Get Fyers token",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
+      "alwaysOutputData": true,
       "position": [
         2860,
         620
@@ -430,6 +431,7 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput",
       "position": [
         3080,
         620
@@ -466,10 +468,71 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE signals_market_context SET price_at_capture = $1::numeric, slippage_pct = CASE WHEN $2::numeric > 0 THEN (($1::numeric - $2::numeric) / $2::numeric) * 100 ELSE NULL END, captured_at = NOW(), source = 'fyers' WHERE signal_id = $3::bigint",
+        "query": "UPDATE signals_market_context SET price_at_capture = $1::numeric, slippage_pct = CASE WHEN $1::numeric IS NOT NULL AND $2::numeric > 0 THEN (($1::numeric - $2::numeric) / $2::numeric) * 100 ELSE NULL END, captured_at = NOW(), source = $4 WHERE signal_id = $3::bigint",
         "options": {
-          "queryReplacement": "={{ [$json.d[0].v.lp, $('Insert signal').item.json.entry_price, $('Insert signal').item.json.id] }}"
+          "queryReplacement": "={{ [$json.fyers_price, $json.entry_price, $json.id, $json.fyers_quote_ok ? 'fyers' : 'unavailable'] }}"
         }
+      }
+    },
+    {
+      "id": "validate-fyers-price",
+      "name": "Validate Fyers quote",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3290, 620],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const response = $input.first().json || {};\nconst signal = $('Insert signal').item.json;\nconst quote = response.d && response.d[0] && response.d[0].v;\nconst price = Number(quote && quote.lp);\nconst quoteOk = response.s === 'ok' && Number.isFinite(price) && price > 0;\nconst error = response.error && (response.error.message || response.error.description || response.error);\nconst reason = quoteOk ? null : String(error || response.message || 'Fyers returned no valid quote').slice(0, 180);\nreturn [{json:{...signal,fyers_price:quoteOk?price:null,fyers_quote_ok:quoteOk,fyers_quote_error:reason}}];"
+      }
+    },
+    {
+      "id": "fyers-token-present",
+      "name": "Fyers token available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3070, 620],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive":true,"leftValue":"","typeValidation":"loose"},
+          "conditions": [{"id":"has-access-token","leftValue":"={{ !!$json.access_token }}","rightValue":true,"operator":{"type":"boolean","operation":"true","singleValue":true}}],
+          "combinator":"and"
+        }
+      }
+    },
+    {
+      "id": "build-fyers-token-missing",
+      "name": "Build token-missing result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3290, 820],
+      "parameters": {
+        "language":"javaScript",
+        "jsCode":"const signal=$('Insert signal').item.json; return [{json:{...signal,fyers_price:null,fyers_quote_ok:false,fyers_quote_error:'No Fyers token is stored; refresh authorization.'}}];"
+      }
+    },
+    {
+      "id": "fyers-quote-ok",
+      "name": "Fyers quote received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3500, 620],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive":true,"leftValue":"","typeValidation":"loose"},
+          "conditions": [{"id":"fyers-quote-valid","leftValue":"={{ $json.fyers_quote_ok }}","rightValue":true,"operator":{"type":"boolean","operation":"true","singleValue":true}}],
+          "combinator":"and"
+        }
+      }
+    },
+    {
+      "id": "build-fyers-quote-failure",
+      "name": "Build missing-price alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3720, 800],
+      "parameters": {
+        "language":"javaScript",
+        "jsCode":"const s=$input.first().json; return [{json:{alert_text:`⚠️ Fyers price unavailable\\n${s.stock_name_raw||s.nse_symbol} (${s.nse_symbol})\\nSignal saved, but no valid price after 3 attempts.\\nReason: ${s.fyers_quote_error||'No valid LTP returned'}.\\nCheck the daily token or ticker.`}}];"
       }
     },
     {
@@ -651,11 +714,6 @@
             "node": "Build alert text",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Has Fyers ticker?",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -676,6 +734,19 @@
         ]
       ]
     },
+    "Seed market context (Fyers TBD)": {
+      "main": [
+        [
+        ]
+      ]
+    },
+    "Seed market context (Fyers TBD)": {
+      "main": [
+        [
+          {"node":"Has Fyers ticker?","type":"main","index":0}
+        ]
+      ]
+    },
     "Build alert text": {
       "main": [
         [
@@ -691,10 +762,27 @@
       "main": [
         [
           {
-            "node": "Fetch Fyers price",
+            "node": "Fyers token available?",
             "type": "main",
             "index": 0
           }
+        ]
+      ]
+    },
+    "Fyers token available?": {
+      "main": [
+        [
+          {"node":"Fetch Fyers price","type":"main","index":0}
+        ],
+        [
+          {"node":"Build token-missing result","type":"main","index":0}
+        ]
+      ]
+    },
+    "Build token-missing result": {
+      "main": [
+        [
+          {"node":"Fyers quote received?","type":"main","index":0}
         ]
       ]
     },
@@ -702,10 +790,35 @@
       "main": [
         [
           {
-            "node": "Update market context",
+            "node": "Validate Fyers quote",
             "type": "main",
             "index": 0
           }
+        ]
+      ]
+    },
+    "Validate Fyers quote": {
+      "main": [
+        [
+          {"node":"Fyers quote received?","type":"main","index":0}
+        ]
+      ]
+    },
+    "Fyers quote received?": {
+      "main": [
+        [
+          {"node":"Update market context","type":"main","index":0}
+        ],
+        [
+          {"node":"Update market context","type":"main","index":0},
+          {"node":"Build missing-price alert","type":"main","index":0}
+        ]
+      ]
+    },
+    "Build missing-price alert": {
+      "main": [
+        [
+          {"node":"Self-DM alert","type":"main","index":0}
         ]
       ]
     }
